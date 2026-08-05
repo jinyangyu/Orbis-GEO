@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Onboarding, { hasCompletedOnboarding, resetOnboardingStorage } from "./onboarding";
 
 type PageKey = "overview" | "research" | "prompts" | "brands" | "citations" | "audit" | "reports";
 
@@ -66,6 +67,7 @@ function Donut({ value, color = "#5b6cff" }: { value: number; color?: string }) 
 }
 
 export default function Home() {
+  const [experience, setExperience] = useState<"checking" | "onboarding" | "dashboard">("checking");
   const [page, setPage] = useState<PageKey>("overview");
   const [range, setRange] = useState("过去 30 天");
   const [engine, setEngine] = useState("全部平台");
@@ -73,8 +75,15 @@ export default function Home() {
   const [drawer, setDrawer] = useState<(typeof promptRows)[number] | null>(null);
   const [mobileNav, setMobileNav] = useState(false);
   const [toast, setToast] = useState("");
-
   const filteredPrompts = useMemo(() => promptRows.filter(row => row.q.toLowerCase().includes(query.toLowerCase()) || row.tag.includes(query)), [query]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setExperience(hasCompletedOnboarding() ? "dashboard" : "onboarding"), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  if (experience === "checking") return <div className="experience-check"><div className="brand-orbit"><i /></div><b>ORBIS</b><span>正在准备你的工作区</span></div>;
+  if (experience === "onboarding") return <Onboarding onComplete={() => setExperience("dashboard")} />;
 
   const notify = (message: string) => {
     setToast(message);
@@ -105,7 +114,7 @@ export default function Home() {
         <nav>
           {navGroups.map(group => <div className="nav-group" key={group.label}><p>{group.label}</p>{group.items.map(item => <button key={item.key} className={page === item.key ? "active" : ""} onClick={() => changePage(item.key as PageKey)}><span className="nav-icon">{item.icon}</span>{item.label}{"badge" in item && item.badge && <small>{item.badge}</small>}</button>)}</div>)}
         </nav>
-        <div className="sidebar-bottom"><button onClick={() => notify("帮助中心即将上线")}><span>?</span>帮助与文档</button><button onClick={() => notify("设置模块将在下一期接入")}><span>⚙</span>设置</button><div className="account"><span>YC</span><div><b>Yuki Chen</b><small>yuki@novalabs.co</small></div><button aria-label="账户菜单">•••</button></div></div>
+        <div className="sidebar-bottom"><button onClick={() => notify("帮助中心即将上线")}><span>?</span>帮助与文档</button><button onClick={() => { resetOnboardingStorage(); setExperience("onboarding"); }}><span>↺</span>重新体验首次激活</button><div className="account"><span>YC</span><div><b>Yuki Chen</b><small>yuki@novalabs.co</small></div><button aria-label="账户菜单">•••</button></div></div>
       </aside>
       {mobileNav && <button className="nav-backdrop" aria-label="关闭菜单" onClick={() => setMobileNav(false)} />}
 
