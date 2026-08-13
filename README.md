@@ -1,32 +1,101 @@
-# vinext-starter
+# Orbis SEO / GEO Platform
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+vinext dashboard for AI search visibility (GEO), with MySQL persistence for
+onboarding and workspace configuration.
 
 ## Prerequisites
 
 - Node.js `>=22.13.0`
+- MySQL 8.x (local)
 
 ## Quick Start
 
 ```bash
 npm install
+cp .env.example .env.local
+# create database + user, then:
+npm run db:push
 npm run dev
-npm run build
 ```
 
 This starter does not use `wrangler.jsonc`.
 
+## Local MySQL (onboarding / workspace)
+
+Onboarding drafts and completed workspace config are stored in MySQL via Drizzle.
+
+1. Create a database (example):
+
+```sql
+CREATE DATABASE orbis CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'orbis'@'%' IDENTIFIED BY 'orbis';
+GRANT ALL PRIVILEGES ON orbis.* TO 'orbis'@'%';
+FLUSH PRIVILEGES;
+```
+
+2. Set `DATABASE_URL` in `.env.local`:
+
+```bash
+DATABASE_URL=mysql://orbis:orbis@127.0.0.1:3306/orbis
+```
+
+3. Apply schema:
+
+```bash
+npm run db:push
+# or: npm run db:generate && npm run db:migrate
+```
+
+Identity (phase 1): the browser stores a local UUID in `localStorage`
+(`orbis_user_id`) and sends it as `x-orbis-user-id`. SIWC email is reserved on
+`users.email` but not required yet.
+
+API surface:
+
+- `GET/PUT /api/onboarding` — draft session
+- `POST /api/onboarding/complete` — commit users / workspace / brand / prompts / competitors
+- `POST /api/onboarding/reset` — clear draft (sidebar「重新体验首次激活」)
+- `GET /api/workspace` — current workspace payload for the dashboard shell
+
+`localStorage` (`orbis_onboarding_v1`) remains an offline draft fallback; MySQL is
+the source of truth when available.
+
+### Schema (MySQL `orbis`)
+
+详见设计文档：[docs/storage-design.md](docs/storage-design.md)。
+
+**Account / onboarding:** `users`, `workspaces`, `onboarding_sessions`
+
+**Config:** `workspace_brands` (primary + competitor), `prompts`, `engines`
+
+**Facts (GEO monitoring):** `answer_observations`, `answer_brand_mentions`,
+`citation_events`, `citation_competitors`, `citation_stars`
+
+**Daily rollups (L3):** `obs_metrics_daily`, `brand_metrics_daily`,
+`prompt_metrics_daily`, `domain_metrics_daily`, `url_metrics_daily`
+
+**Optional:** `report_exports`
+
+Seed engines:
+
+```bash
+mysql -h127.0.0.1 -P3306 -uorbis -porbis orbis < scripts/seed-engines.sql
+```
+
+Rebuild daily metrics after importing facts:
+
+```bash
+npm run db:rebuild-daily
+```
+
 ## Included Shape
 
 - edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
+- `.openai/hosting.json` declares optional Sites D1 and R2 bindings (D1 unused; MySQL is primary)
 - `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
+- `db/schema.ts` defines onboarding / workspace tables
+- `examples/d1/` contains a legacy D1 example surface
+- `drizzle.config.ts` targets MySQL via `DATABASE_URL`
 ## Workspace Auth Headers
 
 OpenAI workspace sites can read the current user's email from
@@ -85,14 +154,38 @@ or enforce explicit server-side membership or allowlist checks.
 Use SIWC for account pages, user-specific dashboards, saved records, and write
 actions tied to the current ChatGPT user. Leave public content anonymous.
 
+## Content generation (seo-generator-agent)
+
+The「内容生成」page lists articles from the Go agent via a vinext BFF.
+
+1. Start `seo-generator-agent` HTTP API (default `http://127.0.0.1:8080`).
+2. Copy `.env.example` to `.env.local` and set:
+
+```bash
+SEO_AGENT_BASE_URL=http://127.0.0.1:8080
+```
+
+3. Run `pnpm dev`, open the dashboard, and open **内容 → 内容生成**.
+
+Browser calls `GET /api/content/articles`, which proxies to
+`GET {SEO_AGENT_BASE_URL}/api/orbis/articles`. Preview links open the agent's
+`/preview/:articleId` in a new tab when `preview_ready` is true.
+
 ## Useful Commands
 
 - `npm run dev`: start local development
 - `npm run build`: verify the vinext build output
 - `npm test`: build the starter and verify its rendered loading skeleton
+- `npm run test:unit`: unit tests (query helpers, slug, onboarding validation)
 - `npm run db:generate`: generate Drizzle migrations after schema changes
+- `npm run db:push`: push schema to local MySQL
+- `npm run db:migrate`: apply generated SQL migrations
+- `npm run db:seed-engines`: seed AI engine dictionary (idempotent)
+- `npm run db:import-inspection`: import inspection `response.json` dumps into L2 fact tables
+  (default path `~/Downloads/inspection_2026-08-05_all_raw_responses_v2`; pass another root as argv)
+- `npm run db:enrich-monitoring`: discover competitors, backfill mentions / citation categories
 
 ## Learn More
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- [Drizzle MySQL Guide](https://orm.drizzle.team/docs/get-started/mysql-new)

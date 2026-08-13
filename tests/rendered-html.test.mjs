@@ -21,8 +21,9 @@ test("server renders the Orbis application shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /Orbis｜AI 搜索可见度与 GEO 智能增长平台/);
-  assert.match(html, /正在准备你的工作区/);
   assert.match(html, /ORBIS/);
+  assert.match(html, /AI 搜索可见度总览/);
+  assert.match(html, /重新体验首次激活/);
   assert.doesNotMatch(html, /Your site is taking shape|Codex is building/);
 });
 
@@ -45,7 +46,18 @@ test("onboarding includes the complete activation state machine", async () => {
 
 test("dashboard exposes a safe onboarding reset", async () => {
   const page = await readFile(new URL("app/page.tsx", root), "utf8");
-  assert.match(page, /hasCompletedOnboarding/);
   assert.match(page, /resetOnboardingStorage/);
   assert.match(page, /重新体验首次激活/);
+  assert.match(page, /fetchWorkspace/);
+  // First visit must open dashboard directly; onboarding is manual-only.
+  assert.doesNotMatch(page, /hasCompletedOnboarding\(\)\s*\?\s*"dashboard"\s*:\s*"onboarding"/);
+  assert.match(page, /useState<"onboarding" \| "dashboard">\("dashboard"\)/);
+});
+
+test("onboarding persists drafts to MySQL APIs", async () => {
+  const source = await readFile(new URL("app/onboarding.tsx", root), "utf8");
+  assert.match(source, /saveOnboardingDraft/);
+  assert.match(source, /completeOnboardingRemote/);
+  assert.match(source, /fetchOnboardingDraft/);
+  assert.match(source, /orbis_onboarding_v1/);
 });

@@ -1,39 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  completeOnboardingRemote,
+  fetchOnboardingDraft,
+  resetOnboardingRemote,
+  saveOnboardingDraft,
+} from "@/lib/onboarding/client";
+import { isValidOnboardingState } from "@/lib/onboarding/validate";
+import type {
+  BrandData,
+  CompetitorItem,
+  OnboardingState,
+  ProfileData,
+  PromptItem,
+  Screen,
+} from "@/lib/onboarding/types";
 
 export const ONBOARDING_STORAGE_KEY = "orbis_onboarding_v1";
 
-export type ProfileData = {
-  firstName: string;
-  lastName: string;
-  role: "brand" | "agency";
-  source: string;
+export type {
+  BrandData,
+  CompetitorItem,
+  OnboardingState,
+  ProfileData,
+  PromptItem,
 };
 
-export type BrandData = {
-  website: string;
-  name: string;
-  market: string;
-  language: string;
-};
-
-export type PromptItem = { id: number; text: string; selected: boolean };
-export type CompetitorItem = { id: number; name: string; domain: string; mark: string; color: string };
 export type ProcessingStage = "checking" | "querying" | "analyzing" | "building";
-type Screen = "profile" | "brand" | "promptLoading" | "prompts" | "competitorLoading" | "competitors" | "processing" | "tourIntro" | "tour" | "ready";
-
-export type OnboardingState = {
-  version: 1;
-  screen: Screen;
-  profile: ProfileData;
-  brand: BrandData;
-  prompts: PromptItem[];
-  competitors: CompetitorItem[];
-  processingIndex: number;
-  tourIndex: number;
-  completedAt: string | null;
-};
 
 const defaultPrompts: PromptItem[] = [
   "适合成长型科技团队的最佳项目管理工具有哪些？",
@@ -88,10 +82,15 @@ const tourSteps = [
   { eyebrow: "04 · 引用与建议", title: "把监测结果转化为下一步行动", copy: "查看 AI 信任的网页与媒体来源，再按照影响与投入获得清晰的 GEO 优化优先级。", focus: "actions" },
 ];
 
-function isValidStored(value: unknown): value is OnboardingState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Partial<OnboardingState>;
-  return state.version === 1 && typeof state.screen === "string" && !!state.profile && !!state.brand && Array.isArray(state.prompts) && Array.isArray(state.competitors);
+function readLocalDraft(): OnboardingState | null {
+  try {
+    const raw = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    return isValidOnboardingState(saved) ? saved : null;
+  } catch {
+    return null;
+  }
 }
 
 export function hasCompletedOnboarding() {
@@ -99,24 +98,18 @@ export function hasCompletedOnboarding() {
     const raw = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
     if (!raw) return false;
     const state = JSON.parse(raw);
-    return isValidStored(state) && Boolean(state.completedAt);
+    return isValidOnboardingState(state) && Boolean(state.completedAt);
   } catch {
     return false;
   }
 }
 
-export function resetOnboardingStorage() {
+export async function resetOnboardingStorage() {
   window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
-}
-
-function readInitialState(): OnboardingState {
   try {
-    const raw = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
-    if (!raw) return initialState;
-    const saved = JSON.parse(raw);
-    return isValidStored(saved) ? saved : initialState;
+    await resetOnboardingRemote();
   } catch {
-    return initialState;
+    // Offline / DB unavailable: local clear is enough to restart the wizard.
   }
 }
 
@@ -124,18 +117,50 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
   const [state, setState] = useState<OnboardingState>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const skipNextPersist = useRef(true);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setState(readInitialState());
-      setHydrated(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
+    let cancelled = false;
+    (async () => {
+      let next = initialState;
+      try {
+        const remote = await fetchOnboardingDraft();
+        if (remote && !remote.completedAt) next = remote;
+        else {
+          const local = readLocalDraft();
+          if (local && !local.completedAt) next = local;
+        }
+      } catch {
+        const local = readLocalDraft();
+        if (local && !local.completedAt) next = local;
+      }
+      if (!cancelled) {
+        skipNextPersist.current = true;
+        setState(next);
+        setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(state));
+
+    if (skipNextPersist.current) {
+      skipNextPersist.current = false;
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void saveOnboardingDraft(state).catch(() => {
+        // Keep localStorage as offline fallback when MySQL is unavailable.
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
   }, [hydrated, state]);
 
   useEffect(() => {
@@ -180,17 +205,25 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
     if (state.competitors.length < 1) return setError("请至少保留 1 个竞争品牌。 ");
     setError(""); patch({ screen: "processing", processingIndex: 0 });
   };
-  const finish = () => {
-    const next = { ...state, completedAt: new Date().toISOString() };
+  const finish = async () => {
+    const next: OnboardingState = { ...state, completedAt: new Date().toISOString() };
     window.localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(next));
     setState(next);
-    onComplete();
+    setSaving(true);
+    setError("");
+    try {
+      await completeOnboardingRemote(next);
+      onComplete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存工作区失败，请确认 MySQL 已启动。");
+      setSaving(false);
+    }
   };
 
   if (!hydrated) return <div className="onboarding-boot"><BrandLockup /><div className="boot-line" /></div>;
 
   if (["processing", "tourIntro", "tour", "ready"].includes(state.screen)) {
-    return <ReportExperience state={state} setState={setState} onComplete={finish} />;
+    return <ReportExperience state={state} setState={setState} onComplete={finish} saving={saving} error={error} />;
   }
 
   const loading = state.screen === "promptLoading" || state.screen === "competitorLoading";
@@ -203,7 +236,7 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           <div className="onboarding-title"><span>开始设置</span><h1>先认识一下你</h1><p>我们会根据你的角色调整工作区与报告方式。</p></div>
           <div className="field-row"><label>名字<input value={state.profile.firstName} onChange={e => updateProfile({ firstName: e.target.value })} /></label><label>姓氏<input value={state.profile.lastName} onChange={e => updateProfile({ lastName: e.target.value })} /></label></div>
           <fieldset className="choice-field"><legend>哪一种描述更符合你？</legend><button className={state.profile.role === "brand" ? "selected" : ""} onClick={() => updateProfile({ role: "brand" })}><i /><span><b>品牌团队</b><small>我负责一个品牌及其增长表现</small></span><em>推荐</em></button><button className={state.profile.role === "agency" ? "selected" : ""} onClick={() => updateProfile({ role: "agency" })}><i /><span><b>代理商</b><small>我管理多个客户或品牌</small></span></button></fieldset>
-          <label className="full-field">你是如何了解到 Orbis 的？<select value={state.profile.source} onChange={e => updateProfile({ source: e.target.value })}><option>ChatGPT</option><option>朋友推荐</option><option>搜索引擎</option><option>社交媒体</option><option>行业活动</option></select></label>
+          <label className="full-field">你是如何了解到 Orbis 的？<select className="orbis-select" value={state.profile.source} onChange={e => updateProfile({ source: e.target.value })}><option>ChatGPT</option><option>朋友推荐</option><option>搜索引擎</option><option>社交媒体</option><option>行业活动</option></select></label>
           <FormFooter error={error} onNext={nextFromProfile} nextLabel="继续设置品牌" />
         </>}
 
@@ -211,11 +244,11 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
           <div className="onboarding-title"><span>品牌与市场</span><h1>设置第一个监测品牌</h1><p>告诉我们品牌与目标市场，Orbis 会据此生成监测问题。</p></div>
           <label className="full-field">品牌网站<input value={state.brand.website} onChange={e => { const website = e.target.value; updateBrand({ website, ...(website.includes("nova") ? { name: "Nova Labs" } : {}) }); }} placeholder="example.com" /><small>输入域名即可，我们会自动识别品牌基础信息。</small></label>
           <label className="full-field">品牌名称<div className="brand-input"><input value={state.brand.name} onChange={e => updateBrand({ name: e.target.value })} /><span>{state.brand.name.slice(0, 1) || "N"}</span></div></label>
-          <div className="field-row"><label>目标市场<select value={state.brand.market} onChange={e => updateBrand({ market: e.target.value })}><option>中国大陆</option><option>美国</option><option>英国</option><option>新加坡</option></select></label><label>AI 查询语言<select value={state.brand.language} onChange={e => updateBrand({ language: e.target.value })}><option>简体中文</option><option>English</option><option>繁體中文</option></select></label></div>
+          <div className="field-row"><label>目标市场<select className="orbis-select" value={state.brand.market} onChange={e => updateBrand({ market: e.target.value })}><option>中国大陆</option><option>美国</option><option>英国</option><option>新加坡</option></select></label><label>AI 查询语言<select className="orbis-select" value={state.brand.language} onChange={e => updateBrand({ language: e.target.value })}><option>简体中文</option><option>English</option><option>繁體中文</option></select></label></div>
           <FormFooter error={error} onBack={() => patch({ screen: "profile" })} onNext={nextFromBrand} nextLabel="生成监测问题" />
         </>}
 
-        {loading && <LoadingStep type={state.screen} brand={state.brand.name} />}
+        {loading && <LoadingStep type={state.screen as "promptLoading" | "competitorLoading"} brand={state.brand.name} />}
 
         {state.screen === "prompts" && <>
           <div className="onboarding-title list-title"><span>监测范围</span><h1>审核要持续监测的问题</h1><p>建议保留至少 15 个，以获得更稳定的趋势判断。当前已选择 <b>{selectedCount}</b> 个。</p></div>
@@ -259,7 +292,19 @@ function OnboardingPreview({ screen, state }: { screen: Screen; state: Onboardin
   return <aside className="onboarding-preview" aria-hidden="true"><div className="dot-field" /><div className="preview-glow" /><div className="preview-card preview-brand"><span>{state.brand.name.slice(0, 1) || "N"}</span><div><b>{state.brand.name}</b><small>{state.brand.website}</small></div></div><div className="orbit-network"><i /><i /><i /><i /><span>✦</span></div>{promptMode && <div className="preview-card preview-prompts"><em>AI PROMPTS</em>{state.prompts.slice(0, 3).map((p, i) => <p key={p.id}><span>{String(i + 1).padStart(2, "0")}</span>{p.text}</p>)}</div>}{competitorMode && <div className="preview-card preview-ranking"><header><b>竞争品牌预览</b><span>声量</span></header>{state.competitors.slice(0, 5).map((c, i) => <div key={c.id}><small>{i + 1}</small><i style={{ background: c.color }}>{c.mark}</i><b>{c.name}</b><span>{[24, 21, 18, 15, 11][i]}%</span></div>)}</div>}{!promptMode && !competitorMode && <div className="preview-card profile-preview"><em>WORKSPACE PROFILE</em><div><span>{state.profile.firstName.slice(0, 1)}{state.profile.lastName.slice(0, 1)}</span><section><b>{state.profile.firstName} {state.profile.lastName}</b><small>{state.profile.role === "brand" ? "品牌团队" : "代理商工作区"}</small></section></div><hr /><i /><i /><i /></div>}</aside>;
 }
 
-function ReportExperience({ state, setState, onComplete }: { state: OnboardingState; setState: React.Dispatch<React.SetStateAction<OnboardingState>>; onComplete: () => void }) {
+function ReportExperience({
+  state,
+  setState,
+  onComplete,
+  saving,
+  error,
+}: {
+  state: OnboardingState;
+  setState: React.Dispatch<React.SetStateAction<OnboardingState>>;
+  onComplete: () => void | Promise<void>;
+  saving: boolean;
+  error: string;
+}) {
   if (state.screen === "processing") {
     const stage = processingStages[state.processingIndex];
     const progress = ((state.processingIndex + 1) / processingStages.length) * 100;
@@ -273,7 +318,7 @@ function ReportExperience({ state, setState, onComplete }: { state: OnboardingSt
     return <main className="tour-shell"><MockReport focus={tour.focus} /><div className={`tour-tip tip-${tour.focus}`}><span>{tour.eyebrow}</span><h2>{tour.title}</h2><p>{tour.copy}</p><footer><button onClick={() => setState(current => ({ ...current, screen: "ready" }))}>跳过</button><em>{state.tourIndex + 1} / {tourSteps.length}</em><button className="main-action" onClick={() => setState(current => current.tourIndex < tourSteps.length - 1 ? { ...current, tourIndex: current.tourIndex + 1 } : { ...current, screen: "ready" })}>{state.tourIndex === tourSteps.length - 1 ? "完成" : "下一步"} →</button></footer></div></main>;
   }
 
-  return <main className="report-processing"><MockReport /><div className="processing-scrim" /><section className="processing-modal complete-modal"><div className="ready-symbol">✓</div><span>FIRST REPORT READY</span><h1>你的首份品牌报告已准备好</h1><p>已完成 75 次 AI 查询，并发现 9 个优先优化机会。</p><div className="completion-stats"><div><b>67.4</b><small>AI 可见度</small></div><div><b>42.8%</b><small>品牌覆盖率</small></div><div><b>126</b><small>官网引用</small></div></div><button className="main-action full-action" onClick={onComplete}>进入品牌报告 →</button></section></main>;
+  return <main className="report-processing"><MockReport /><div className="processing-scrim" /><section className="processing-modal complete-modal"><div className="ready-symbol">✓</div><span>FIRST REPORT READY</span><h1>你的首份品牌报告已准备好</h1><p>已完成 75 次 AI 查询，并发现 9 个优先优化机会。</p><div className="completion-stats"><div><b>67.4</b><small>AI 可见度</small></div><div><b>42.8%</b><small>品牌覆盖率</small></div><div><b>126</b><small>官网引用</small></div></div>{error && <p role="alert" className="complete-error">{error}</p>}<button className="main-action full-action" disabled={saving} onClick={() => void onComplete()}>{saving ? "正在保存工作区…" : "进入品牌报告 →"}</button></section></main>;
 }
 
 function MockReport({ focus = "" }: { focus?: string }) {

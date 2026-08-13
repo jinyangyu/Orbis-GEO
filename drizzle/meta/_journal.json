@@ -1,5 +1,41 @@
 {
   "version": "7",
-  "dialect": "sqlite",
-  "entries": []
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1754535600000,
+      "tag": "0000_onboarding_workspace",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1754550000000,
+      "tag": "0001_monitoring_facts",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1755100000000,
+      "tag": "0002_prompt_research_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1755102000000,
+      "tag": "0003_workspace_brands_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1755104000000,
+      "tag": "0004_brand_settings",
+      "breakpoints": true
+    }
+  ]
 }

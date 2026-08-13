@@ -6,15 +6,24 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
+    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --hostname 0.0.0.0",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "pnpm build && node --test tests/rendered-html.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/seo-agent-query.test.mjs tests/workspace-slug.test.mjs tests/onboarding-validate.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:seed-engines": "node --env-file=.env.local -e \"import mysql from 'mysql2/promise'; import { readFileSync } from 'fs'; const u=new URL(process.env.DATABASE_URL); const c=await mysql.createConnection({host:u.hostname,port:Number(u.port||3306),user:decodeURIComponent(u.username),password:decodeURIComponent(u.password),database:u.pathname.slice(1),multipleStatements:true}); await c.query(readFileSync('scripts/seed-engines.sql','utf8')); await c.end();\"",
+    "db:import-inspection": "node --env-file=.env.local scripts/import-inspection.mjs",
+    "db:enrich-monitoring": "node --env-file=.env.local scripts/enrich-monitoring.mjs",
+    "db:simulate-history": "node --env-file=.env.local scripts/simulate-history.mjs",
+    "db:rebuild-daily": "node --env-file=.env.local scripts/rebuild-metrics-daily.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
+    "mysql2": "^3.14.1",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"
