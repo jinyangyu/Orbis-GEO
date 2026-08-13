@@ -25,11 +25,22 @@ export type PromptMetricRow = {
   mentions: number;
   citations: number;
   competitor: string;
+  competitors: string[];
   status: string;
   brandMentions: number;
   totalBrandMentions: number;
   domainMentions: number;
+  totalDomainCitations: number;
   intentVolume: string;
+  sentimentBreakdown?: {
+    positive: number;
+    neutral: number;
+    negative: number;
+    positivePct: number;
+    neutralPct: number;
+    negativePct: number;
+    label: "Positive" | "Neutral" | "Negative" | "Mixed";
+  };
 };
 
 export type EngineMetricRow = {

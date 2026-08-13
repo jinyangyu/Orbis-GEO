@@ -8,6 +8,7 @@ import Onboarding, { resetOnboardingStorage } from "./onboarding";
 import { PromptResearch } from "./prompt-research";
 import ReportFilters from "./report-filters";
 import ReviewDetectedBrandsModal from "./review-detected-brands-modal";
+import PromptHoverText from "./prompt-hover-text";
 import { SentimentCell } from "./sentiment-cell";
 import {
   engineFilterFromLabel,
@@ -1091,53 +1092,194 @@ export default function Home() {
       )}
 
       <main className="main">
-        <header className="topbar">
-          <button className="mobile-menu" onClick={() => setMobileNav(true)} aria-label="打开菜单">
-            ☰
-          </button>
-          <div className="crumb">
-            <span>{workspaceName}</span>
-            <i>/</i>
-            {page === "brand-settings" ? (
-              <>
-                <span>品牌报告</span>
-                <i>/</i>
-                <b>品牌设置</b>
-              </>
-            ) : (
-              <b>{titles[page][0]}</b>
-            )}
-          </div>
-          <div className="top-actions">
-            <button
-              className="icon-button"
-              aria-label="设置"
-              onClick={() => {
-                setSettingsTab("details");
-                changePage("brand-settings");
-              }}
-            >
-              ⚙
-            </button>
-            <button
-              className="generate-report-btn"
-              onClick={() => setReportOpen(true)}
-              disabled={!overview}
-            >
-              <span aria-hidden>⬇</span>
-              Generate Report
-            </button>
-            <button className="icon-button notification" aria-label="通知">
-              ♢<i />
-            </button>
-          </div>
-        </header>
-
         <section className="content">
-          <div className="page-heading">
-            <div>
-              <h1>{workspaceName || titles[page][0]}</h1>
-              <p>{titles[page][1]}</p>
+          <div className="page-chrome">
+            <div className="crumb-row">
+              <button
+                className="mobile-menu"
+                onClick={() => setMobileNav(true)}
+                aria-label="打开菜单"
+              >
+                ☰
+              </button>
+              <div className="crumb">
+                {(
+                  [
+                    "overview",
+                    "prompts",
+                    "citations",
+                    "recommendations",
+                    "brand-settings",
+                  ] as PageKey[]
+                ).includes(page) ? (
+                  <>
+                    <span>品牌报告</span>
+                    <i>/</i>
+                    <span>{workspaceName}</span>
+                    <i>/</i>
+                    <b>
+                      {page === "overview"
+                        ? "总览"
+                        : page === "prompts"
+                          ? "Prompts"
+                          : page === "citations"
+                            ? "引用"
+                            : page === "recommendations"
+                              ? "建议"
+                              : "品牌设置"}
+                    </b>
+                  </>
+                ) : (
+                  <b>{titles[page][0]}</b>
+                )}
+              </div>
+              <button
+                type="button"
+                className="crumb-avatar"
+                aria-label={`${profileName} 账户`}
+                title={profileName}
+              >
+                {profileInitials}
+              </button>
+            </div>
+
+            <div className="page-heading">
+              <div className="page-title">
+                {(
+                  [
+                    "overview",
+                    "citations",
+                    "recommendations",
+                    "brand-settings",
+                  ] as PageKey[]
+                ).includes(page) ? (
+                  <span className="brand-mark" aria-hidden>
+                    {workspaceInitial}
+                  </span>
+                ) : null}
+                <div>
+                  <h1>
+                    {page === "prompts"
+                      ? "Prompts"
+                      : (
+                            [
+                              "overview",
+                              "citations",
+                              "recommendations",
+                            ] as PageKey[]
+                          ).includes(page)
+                        ? workspaceName
+                        : titles[page][0]}
+                  </h1>
+                  {page === "prompts" ? (
+                    <p>查看哪些问题提及本品，哪些提及竞品。</p>
+                  ) : (
+                      [
+                        "overview",
+                        "citations",
+                        "recommendations",
+                        "brand-settings",
+                      ] as PageKey[]
+                    ).includes(page) ? null : (
+                    <p>{titles[page][1]}</p>
+                  )}
+                </div>
+              </div>
+              {page === "prompts" ? (
+                <div className="heading-actions">
+                  <button
+                    type="button"
+                    className="generate-report-btn"
+                    onClick={() => {
+                      const rows = filteredPrompts;
+                      if (!rows.length) {
+                        notify("没有可导出的 Prompt");
+                        return;
+                      }
+                      const header = [
+                        "Prompt",
+                        "Tag",
+                        "Market",
+                        "Coverage",
+                        "Sentiment",
+                        "Intent",
+                        "BrandMentions",
+                        "TotalBrandMentions",
+                        "DomainCitations",
+                        "TotalDomainCitations",
+                        "Competitors",
+                      ];
+                      const escape = (v: string | number) => {
+                        const s = String(v ?? "");
+                        if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+                        return s;
+                      };
+                      const lines = [
+                        header.join(","),
+                        ...rows.map((r) =>
+                          [
+                            r.q,
+                            r.tag,
+                            r.market,
+                            r.coverage,
+                            r.sentiment,
+                            r.intentVolume,
+                            r.brandMentions,
+                            r.totalBrandMentions,
+                            r.domainMentions,
+                            r.totalDomainCitations,
+                            (r.competitors ?? []).join("; ") || r.competitor,
+                          ]
+                            .map(escape)
+                            .join(","),
+                        ),
+                      ];
+                      const blob = new Blob(["\uFEFF" + lines.join("\n")], {
+                        type: "text/csv;charset=utf-8",
+                      });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = `${workspaceName || "prompts"}-prompts.csv`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      notify(`已导出 ${rows.length} 条 Prompt`);
+                    }}
+                  >
+                    <span aria-hidden>⬇</span>
+                    Export as CSV
+                  </button>
+                </div>
+              ) : (
+                [
+                  "overview",
+                  "citations",
+                  "recommendations",
+                ] as PageKey[]
+              ).includes(page) ? (
+                <div className="heading-actions">
+                  <button
+                    type="button"
+                    className="settings-btn"
+                    aria-label="品牌设置"
+                    onClick={() => {
+                      setSettingsTab("details");
+                      changePage("brand-settings");
+                    }}
+                  >
+                    ⚙
+                  </button>
+                  <button
+                    type="button"
+                    className="generate-report-btn"
+                    onClick={() => setReportOpen(true)}
+                    disabled={!overview}
+                  >
+                    <span aria-hidden>⬇</span>
+                    Generate Report
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -1201,7 +1343,6 @@ export default function Home() {
               onOpenPrompts={() => changePage("prompts")}
               onOpenRecs={() => changePage("recommendations")}
               onOpenCitations={() => changePage("citations")}
-              onOpenPrompt={setDrawerPrompt}
               onOpenDetected={() => setDetectedOpen(true)}
             />
           )}
@@ -1387,14 +1528,12 @@ function Overview({
   onOpenPrompts,
   onOpenRecs,
   onOpenCitations,
-  onOpenPrompt,
   onOpenDetected,
 }: {
   data: OverviewMetrics;
   onOpenPrompts: () => void;
   onOpenRecs: () => void;
   onOpenCitations: () => void;
-  onOpenPrompt: (row: PromptMetricRow) => void;
   onOpenDetected: () => void;
 }) {
   const [mePlus, setMePlus] = useState<"top5" | "all">("top5");
@@ -1661,7 +1800,7 @@ function Overview({
               tip="本品被提及次数最多的监测问题。可用于识别高可见话题，并下钻到具体答卷。"
             />
             <button className="text-button" onClick={onOpenPrompts}>
-              查看全部 →
+              查看完整报告
             </button>
           </div>
           <div className="table-scroll">
@@ -1675,17 +1814,12 @@ function Overview({
               </thead>
               <tbody>
                 {data.topPromptsByMentions.slice(0, 6).map((p, i) => (
-                  <tr
-                    key={p.promptId}
-                    onClick={() => {
-                      const row = data.attentionPrompts.find((x) => x.promptId === p.promptId);
-                      if (row) onOpenPrompt(row);
-                      else onOpenPrompts();
-                    }}
-                  >
+                  <tr key={p.promptId}>
                     <td>{i + 1}</td>
                     <td>
-                      <b className="prompt-name">{p.q}</b>
+                      <b className="prompt-name">
+                        <PromptHoverText text={p.q} />
+                      </b>
                     </td>
                     <td>{p.count}</td>
                   </tr>
@@ -1827,7 +1961,9 @@ function Overview({
                   <tr key={p.promptId}>
                     <td>{i + 1}</td>
                     <td>
-                      <b className="prompt-name">{p.q}</b>
+                      <b className="prompt-name">
+                        <PromptHoverText text={p.q} />
+                      </b>
                     </td>
                     <td>{p.count}</td>
                   </tr>
@@ -1850,7 +1986,6 @@ function Prompts({
   rows,
   total,
   onOpen,
-  notify,
 }: {
   query: string;
   setQuery: (s: string) => void;
@@ -1862,13 +1997,35 @@ function Prompts({
   onOpen: (r: PromptMetricRow) => void;
   notify: (s: string) => void;
 }) {
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, market, rows.length]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize) || 1);
+  const safePage = Math.min(page, pageCount);
+  const start = (safePage - 1) * pageSize;
+  const pageRows = rows.slice(start, start + pageSize);
+  const viewEnd = Math.min(start + pageRows.length, rows.length);
+
+  const COMP_COLORS = [
+    "#5b68ef",
+    "#FF8A22",
+    "#7CB342",
+    "#8D6E32",
+    "#D27B7E",
+    "#4A90A4",
+  ];
+
   return (
     <div className="panel table-panel">
       <div className="table-toolbar">
         <div className="search-box">
           <span>⌕</span>
           <input
-            placeholder="按 Prompt 搜索"
+            placeholder="Search by prompt"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -1887,12 +2044,9 @@ function Prompts({
           ))}
         </select>
         <div className="spacer" />
-        <button className="secondary-button" onClick={() => notify("CSV 导出任务已创建")}>
-          ⇩ 导出 CSV
-        </button>
       </div>
       <div className="table-scroll">
-        <table>
+        <table className="prompts-table">
           <thead>
             <tr>
               <th>Prompt</th>
@@ -1902,48 +2056,145 @@ function Prompts({
               <th>品牌提及</th>
               <th>全品牌提及</th>
               <th>域名引用</th>
+              <th>全部域名引用</th>
+              <th>竞品</th>
+              <th />
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.promptId} onClick={() => onOpen(row)}>
-                <td>
-                  <b className="prompt-name">{row.q}</b>
-                  <span className="tag">{row.tag}</span>
-                </td>
-                <td>
-                  <div className="coverage">
-                    <b>{row.coverage}%</b>
-                    <i>
-                      <em style={{ width: `${row.coverage}%` }} />
-                    </i>
-                  </div>
-                </td>
-                <td>
-                  <div className="sentiment-bar">
-                    <span className={`sentiment ${row.sentiment > 80 ? "good" : "neutral"}`}>
-                      {row.sentiment}
-                    </span>
-                    <span className="track">
-                      <em style={{ width: `${row.sentiment}%` }} />
-                    </span>
-                  </div>
-                </td>
-                <td>
-                  <span className="intent-chip">{row.intentVolume}</span>
-                </td>
-                <td>{row.brandMentions}</td>
-                <td>{row.totalBrandMentions}</td>
-                <td>{row.domainMentions}</td>
-              </tr>
-            ))}
+            {pageRows.map((row) => {
+              const bd = row.sentimentBreakdown;
+              const comps =
+                row.competitors?.length
+                  ? row.competitors
+                  : row.competitor && row.competitor !== "—"
+                    ? row.competitor.split(",").map((s) => s.trim()).filter(Boolean)
+                    : [];
+              return (
+                <tr key={row.promptId}>
+                  <td>
+                    <b className="prompt-name">
+                      <PromptHoverText text={row.q} />
+                    </b>
+                    {row.tag ? <span className="tag">{row.tag}</span> : null}
+                  </td>
+                  <td>
+                    <div className="coverage">
+                      <b>{row.coverage}%</b>
+                      <i>
+                        <em style={{ width: `${row.coverage}%` }} />
+                      </i>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="prompt-sentiment">
+                      <span
+                        className={`sentiment-value ${row.sentiment >= 70 ? "good" : "neutral"}`}
+                      >
+                        +{row.sentiment}
+                      </span>
+                      {bd ? (
+                        <span className="prompt-sentiment-stack" title="情感估算">
+                          <i
+                            style={{
+                              width: `${bd.negativePct}%`,
+                              background: "#ef4444",
+                            }}
+                          />
+                          <i
+                            style={{
+                              width: `${bd.neutralPct}%`,
+                              background: "#f59e0b",
+                            }}
+                          />
+                          <i
+                            style={{
+                              width: `${bd.positivePct}%`,
+                              background: "#22c55e",
+                            }}
+                          />
+                        </span>
+                      ) : (
+                        <span className="track">
+                          <em style={{ width: `${row.sentiment}%` }} />
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td>
+                    <span className="intent-chip">{row.intentVolume}</span>
+                  </td>
+                  <td>{row.brandMentions}</td>
+                  <td>{row.totalBrandMentions}</td>
+                  <td>{row.domainMentions}</td>
+                  <td>{row.totalDomainCitations ?? row.domainMentions}</td>
+                  <td>
+                    <div className="comp-pills">
+                      {comps.slice(0, 4).map((name, i) => (
+                        <i
+                          key={`${row.promptId}-${name}`}
+                          style={{ background: COMP_COLORS[i % COMP_COLORS.length] }}
+                          title={name}
+                        >
+                          {name.slice(0, 1).toUpperCase()}
+                        </i>
+                      ))}
+                      {comps.length > 4 ? (
+                        <span className="comp-more">+{comps.length - 4}</span>
+                      ) : null}
+                      {comps.length === 0 ? (
+                        <span className="muted">—</span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="bs-link"
+                      onClick={() => onOpen(row)}
+                    >
+                      详情
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div className="pagination">
+      <div className="pagination prompts-pagination">
         <span>
-          显示 1–{rows.length}，共 {total} 个
+          Viewing {rows.length ? start + 1 : 0}–{viewEnd} of {total} results
         </span>
+        <div className="prompts-pager-controls">
+          <button
+            type="button"
+            disabled={safePage <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            ‹
+          </button>
+          <span className="prompts-page-num">{safePage}</span>
+          <button
+            type="button"
+            disabled={safePage >= pageCount}
+            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+          >
+            ›
+          </button>
+          <select
+            className="orbis-select"
+            value={String(pageSize)}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+          >
+            <option value="20">20 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+        </div>
       </div>
     </div>
   );

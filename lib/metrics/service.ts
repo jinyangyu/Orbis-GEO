@@ -538,11 +538,18 @@ export async function getPromptsMetrics(
       primaryMentions: number;
       primaryCites: number;
       totalMentions: number;
+      totalDomainCites: number;
     }
   >;
 
   if (useL3) {
-    byPrompt = await l3PromptAggs(db, workspaceId, range);
+    const l3 = await l3PromptAggs(db, workspaceId, range);
+    byPrompt = new Map(
+      [...l3.entries()].map(([pid, v]) => [
+        pid,
+        { ...v, totalDomainCites: v.primaryCites },
+      ]),
+    );
   } else {
     const engineFilter = engineSql(opts?.engine);
     const dateFilter = dateFilterSql(range);
@@ -579,6 +586,19 @@ export async function getPromptsMetrics(
       GROUP BY o.prompt_id
     `);
 
+    const allCiteRows = await db.execute(sql`
+      SELECT
+        o.prompt_id AS prompt_id,
+        SUM(ce.times_cited) AS total_cites
+      FROM answer_observations o
+      INNER JOIN citation_events ce ON ce.observation_id = o.id
+      LEFT JOIN engines e ON e.id = o.engine_id
+      WHERE o.workspace_id = ${workspaceId}
+      ${dateFilter}
+      ${engineFilter}
+      GROUP BY o.prompt_id
+    `);
+
     const totalMentionRows = await db.execute(sql`
       SELECT
         o.prompt_id AS prompt_id,
@@ -599,6 +619,12 @@ export async function getPromptsMetrics(
         Number(row.primary_cites ?? 0),
       ]),
     );
+    const allCitesByPrompt = new Map(
+      rowsOf(allCiteRows).map((row) => [
+        String(row.prompt_id),
+        Number(row.total_cites ?? 0),
+      ]),
+    );
     const totalByPrompt = new Map(
       rowsOf(totalMentionRows).map((row) => [
         String(row.prompt_id),
@@ -616,6 +642,7 @@ export async function getPromptsMetrics(
             primaryMentions: Number(row.primary_mentions ?? 0),
             primaryCites: citesByPrompt.get(pid) ?? 0,
             totalMentions: totalByPrompt.get(pid) ?? 0,
+            totalDomainCites: allCitesByPrompt.get(pid) ?? 0,
           },
         ] as const;
       }),
@@ -657,30 +684,41 @@ export async function getPromptsMetrics(
       primaryMentions: 0,
       primaryCites: 0,
       totalMentions: 0,
+      totalDomainCites: 0,
     };
     const coverage = pct(agg.primaryMentions, agg.obs, 0);
     const comps = compsByPrompt.get(p.id) ?? [];
     const tags = Array.isArray(p.tags) ? p.tags : [];
     const tag = tags[0] || inferTag(p.text);
+    const sentiment = sentimentFromCoverage(coverage);
     return {
       promptId: p.id,
       q: p.text,
       tag,
       market: p.market || "",
       coverage,
-      sentiment: sentimentFromCoverage(coverage),
+      sentiment,
       mentions: agg.primaryMentions,
       citations: agg.primaryCites,
       competitor: comps.join(", ") || "—",
+      competitors: comps,
       status: statusFromCoverage(coverage, comps.length),
       brandMentions: agg.primaryMentions,
       totalBrandMentions: agg.totalMentions,
       domainMentions: agg.primaryCites,
+      totalDomainCitations: agg.totalDomainCites,
       intentVolume: intentFromCoverage(coverage, p.intentVolume),
+      sentimentBreakdown: estimateSentimentBreakdown(
+        agg.primaryMentions,
+        sentiment,
+      ),
     };
   });
 
-  items.sort((a, b) => a.coverage - b.coverage || b.brandMentions - a.brandMentions);
+  items.sort(
+    (a, b) =>
+      b.brandMentions - a.brandMentions || b.coverage - a.coverage,
+  );
   const limit = opts?.limit ?? 100;
   return { items: items.slice(0, limit), total: items.length, markets, range };
 }
@@ -968,11 +1006,17 @@ export async function getOverviewMetrics(
       mentions: p.primaryMentions,
       citations: p.domainMentions,
       competitor: "—",
+      competitors: [] as string[],
       status: statusFromCoverage(p.coverage, 0),
       brandMentions: p.primaryMentions,
       totalBrandMentions: p.primaryMentions,
       domainMentions: p.domainMentions,
+      totalDomainCitations: p.domainMentions,
       intentVolume: intentFromCoverage(p.coverage),
+      sentimentBreakdown: estimateSentimentBreakdown(
+        p.primaryMentions,
+        sentimentFromCoverage(p.coverage),
+      ),
     }));
 
   const topPromptsByMentions: PromptCountRow[] = [...promptStats]
@@ -1630,11 +1674,17 @@ export async function getPromptDetailMetrics(
     mentions: primaryMentions,
     citations: 0,
     competitor: "—",
+    competitors: [],
     status: statusFromCoverage(coverage, 0),
     brandMentions: primaryMentions,
     totalBrandMentions: primaryMentions,
     domainMentions: 0,
+    totalDomainCitations: 0,
     intentVolume: intentFromCoverage(coverage, promptRow.intentVolume),
+    sentimentBreakdown: estimateSentimentBreakdown(
+      primaryMentions,
+      sentimentFromCoverage(coverage),
+    ),
   };
 
   const obs = await db.execute(sql`
