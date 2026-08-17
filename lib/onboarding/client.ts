@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/auth/fetch";
 import {
   ORBIS_USER_ID_KEY,
   authHeaders,
@@ -16,7 +17,7 @@ function userHeaders(extra?: HeadersInit): HeadersInit {
 }
 
 export async function fetchOnboardingDraft(): Promise<OnboardingState | null> {
-  const res = await fetch("/api/onboarding", {
+  const res = await apiFetch("/api/onboarding", {
     headers: userHeaders(),
     cache: "no-store",
   });
@@ -30,7 +31,7 @@ export async function fetchOnboardingDraft(): Promise<OnboardingState | null> {
 }
 
 export async function saveOnboardingDraft(state: OnboardingState): Promise<void> {
-  const res = await fetch("/api/onboarding", {
+  const res = await apiFetch("/api/onboarding", {
     method: "PUT",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(state),
@@ -44,7 +45,7 @@ export async function saveOnboardingDraft(state: OnboardingState): Promise<void>
 export async function completeOnboardingRemote(
   state: OnboardingState,
 ): Promise<{ workspaceId: string }> {
-  const res = await fetch("/api/onboarding/complete", {
+  const res = await apiFetch("/api/onboarding/complete", {
     method: "POST",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(state),
@@ -57,7 +58,7 @@ export async function completeOnboardingRemote(
 }
 
 export async function resetOnboardingRemote(): Promise<void> {
-  const res = await fetch("/api/onboarding/reset", {
+  const res = await apiFetch("/api/onboarding/reset", {
     method: "POST",
     headers: userHeaders(),
   });
@@ -68,7 +69,7 @@ export async function resetOnboardingRemote(): Promise<void> {
 }
 
 export async function fetchWorkspace(): Promise<WorkspacePayload | null> {
-  const res = await fetch("/api/workspace", {
+  const res = await apiFetch("/api/workspace", {
     headers: userHeaders(),
     cache: "no-store",
   });

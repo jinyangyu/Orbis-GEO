@@ -11,6 +11,7 @@ export type DatePresetId =
 
 export type DateRangeValue = {
   preset: DatePresetId;
+  /** Display label (locale-dependent; prefer resolving via i18n in UI). */
   label: string;
   from: string;
   to: string;
@@ -50,28 +51,41 @@ function daysBetween(from: Date, to: Date): number {
   return Math.max(1, Math.round(ms / 86400000) + 1);
 }
 
+/** Default labels are zh (China market). EN aliases remain accepted by filter helpers. */
 export const DATE_PRESETS: Array<{
   id: Exclude<DatePresetId, "custom">;
+  labelKey: string;
   label: string;
 }> = [
-  { id: "mtd", label: "Month to date" },
-  { id: "last_month", label: "Last month" },
-  { id: "14", label: "Last 14 days" },
-  { id: "30", label: "Last 30 days" },
-  { id: "60", label: "Last 60 days" },
-  { id: "90", label: "Last 90 days" },
+  { id: "mtd", labelKey: "date.mtd", label: "本月至今" },
+  { id: "last_month", labelKey: "date.last_month", label: "上个月" },
+  { id: "14", labelKey: "date.14", label: "过去 14 天" },
+  { id: "30", labelKey: "date.30", label: "过去 30 天" },
+  { id: "60", labelKey: "date.60", label: "过去 60 天" },
+  { id: "90", labelKey: "date.90", label: "过去 90 天" },
 ];
+
+const PRESET_LABEL: Record<Exclude<DatePresetId, "custom">, string> = {
+  mtd: "本月至今",
+  last_month: "上个月",
+  "14": "过去 14 天",
+  "30": "过去 30 天",
+  "60": "过去 60 天",
+  "90": "过去 90 天",
+};
 
 export function buildPresetRange(
   id: Exclude<DatePresetId, "custom">,
   today = new Date(),
+  labelOverride?: string,
 ): DateRangeValue {
+  const label = labelOverride ?? PRESET_LABEL[id];
   const to = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   if (id === "mtd") {
     const from = startOfMonth(to);
     return {
       preset: id,
-      label: "Month to date",
+      label,
       from: toISODate(from),
       to: toISODate(to),
       days: daysBetween(new Date(from), new Date(to)),
@@ -83,7 +97,7 @@ export function buildPresetRange(
     const end = endOfMonth(ref);
     return {
       preset: id,
-      label: "Last month",
+      label,
       from: toISODate(from),
       to: toISODate(end),
       days: daysBetween(new Date(from), new Date(end)),
@@ -93,7 +107,7 @@ export function buildPresetRange(
   const from = addDays(to, -(n - 1));
   return {
     preset: id,
-    label: `Last ${n} days`,
+    label,
     from: toISODate(from),
     to: toISODate(to),
     days: n,
@@ -127,17 +141,18 @@ export function monthMatrix(year: number, month: number): Array<Array<Date | nul
   return rows;
 }
 
+/** zh month names (default market). Use i18n `month.N` in UI when locale is en. */
 export const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
+  "1月",
+  "2月",
+  "3月",
+  "4月",
+  "5月",
+  "6月",
+  "7月",
+  "8月",
+  "9月",
+  "10月",
+  "11月",
+  "12月",
 ];

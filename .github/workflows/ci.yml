@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  unit:
+    name: Lint & unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:unit
+
+  e2e-smoke:
+    name: E2E smoke (optional live server)
+    runs-on: ubuntu-latest
+    needs: unit
+    if: ${{ vars.ORBIS_E2E_BASE_URL != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Smoke against live base URL
+        env:
+          ORBIS_E2E_BASE_URL: ${{ vars.ORBIS_E2E_BASE_URL }}
+        run: npm run test:e2e

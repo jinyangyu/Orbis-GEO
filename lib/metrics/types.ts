@@ -21,7 +21,7 @@ export type PromptMetricRow = {
   tag: string;
   market: string;
   coverage: number;
-  sentiment: number;
+  sentiment: number | null;
   mentions: number;
   citations: number;
   competitor: string;
@@ -62,7 +62,7 @@ export type CompetitorSovRow = {
   mentions: number;
   coverage: number;
   avgPosition: number | null;
-  sentiment: number;
+  sentiment: number | null;
 };
 
 export type CitationDomainRow = {
@@ -81,8 +81,8 @@ export type BrandMatrixRow = {
   visibility: number;
   coverage: number;
   sovPercent: number;
-  sentiment: number;
-  /** Estimated pos/neu/neg split for hover popover (heuristic in v1). */
+  sentiment: number | null;
+  /** Pos/neu/neg split when sentiment is known (DB or debug heuristic). */
   sentimentBreakdown?: {
     positive: number;
     neutral: number;
@@ -148,6 +148,8 @@ export type CitedUrlRow = {
   brandMentioned: "yes" | "no";
   domain: string;
   category: string;
+  /** Whether the current user starred this URL. */
+  starred?: boolean;
   competitors: Array<{
     brandId: string;
     name: string;

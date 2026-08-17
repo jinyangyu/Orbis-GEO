@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { getOverviewMetrics, resolveWorkspaceId } from "@/lib/metrics/service";
 
 function errorResponse(error: unknown) {
@@ -19,10 +19,11 @@ function intParam(value: string | null): number | undefined {
 
 export async function GET(request: Request) {
   try {
-    requireUserId(request);
+    const userId = requireUserId(request);
     const url = new URL(request.url);
     const workspaceId = await withDb((db) =>
       resolveWorkspaceId(db, {
+        userId,
         workspaceId: url.searchParams.get("workspaceId"),
         slug: url.searchParams.get("slug"),
       }),
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
         from: url.searchParams.get("from") ?? undefined,
         to: url.searchParams.get("to") ?? undefined,
         days: intParam(url.searchParams.get("days")),
+        market: url.searchParams.get("market") ?? undefined,
       }),
     );
     if (!data) {

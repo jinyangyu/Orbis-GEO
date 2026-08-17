@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/auth/fetch";
 import {
   authHeaders,
   getOrCreateClientUserId,
@@ -18,7 +19,7 @@ export async function fetchBrandSettings(workspaceId?: string) {
   const qs = workspaceId
     ? `?workspaceId=${encodeURIComponent(workspaceId)}`
     : "";
-  const res = await fetch(`/api/brand-settings${qs}`, {
+  const res = await apiFetch(`/api/brand-settings${qs}`, {
     headers: userHeaders(),
     cache: "no-store",
   });
@@ -39,9 +40,10 @@ export async function patchBrandSettingsClient(
     domainAliases?: string[];
     includeSubdomains?: boolean;
     notifyNewRecommendations?: boolean;
+    notifyWebhookUrl?: string;
   },
 ) {
-  const res = await fetch("/api/brand-settings", {
+  const res = await apiFetch("/api/brand-settings", {
     method: "PATCH",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ workspaceId, ...patch }),
@@ -81,7 +83,7 @@ export async function fetchSettingsPrompts(
   params.set("pane", opts.pane === "inactive" ? "inactive" : "active");
   if (opts.page) params.set("page", String(opts.page));
   if (opts.pageSize) params.set("pageSize", String(opts.pageSize));
-  const res = await fetch(`/api/brand-settings/prompts?${params}`, {
+  const res = await apiFetch(`/api/brand-settings/prompts?${params}`, {
     headers: userHeaders(),
     cache: "no-store",
   });
@@ -97,7 +99,7 @@ export async function savePromptMembership(
   activateIds: string[],
   deactivateIds: string[],
 ) {
-  const res = await fetch("/api/brand-settings/prompts", {
+  const res = await apiFetch("/api/brand-settings/prompts", {
     method: "PATCH",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ workspaceId, activateIds, deactivateIds }),

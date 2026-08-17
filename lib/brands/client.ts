@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/auth/fetch";
 import {
   authHeaders,
   getOrCreateClientUserId,
@@ -15,7 +16,7 @@ export async function fetchActiveBrands(workspaceId?: string) {
   const qs = workspaceId
     ? `?workspaceId=${encodeURIComponent(workspaceId)}`
     : "";
-  const res = await fetch(`/api/brands${qs}`, {
+  const res = await apiFetch(`/api/brands${qs}`, {
     headers: userHeaders(),
     cache: "no-store",
   });
@@ -39,7 +40,7 @@ export async function fetchDetectedBrands(
   if (workspaceId) params.set("workspaceId", workspaceId);
   params.set("page", String(page));
   params.set("pageSize", String(pageSize));
-  const res = await fetch(`/api/brands/detected?${params}`, {
+  const res = await apiFetch(`/api/brands/detected?${params}`, {
     headers: userHeaders(),
     cache: "no-store",
   });
@@ -56,7 +57,7 @@ export async function fetchDetectedBrands(
 }
 
 export async function acceptDetected(id: string) {
-  const res = await fetch(`/api/brands/detected/${id}?action=accept`, {
+  const res = await apiFetch(`/api/brands/detected/${id}?action=accept`, {
     method: "POST",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ action: "accept" }),
@@ -69,7 +70,7 @@ export async function acceptDetected(id: string) {
 }
 
 export async function dismissDetected(id: string) {
-  const res = await fetch(`/api/brands/detected/${id}?action=dismiss`, {
+  const res = await apiFetch(`/api/brands/detected/${id}?action=dismiss`, {
     method: "POST",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ action: "dismiss" }),
@@ -95,7 +96,7 @@ export async function patchBrand(
     color: string;
   }>,
 ) {
-  const res = await fetch(`/api/brands/${id}`, {
+  const res = await apiFetch(`/api/brands/${id}`, {
     method: "PATCH",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(patch),
@@ -111,7 +112,7 @@ export async function createBrandCompetitor(
   workspaceId: string | undefined,
   input: { name: string; domain?: string },
 ) {
-  const res = await fetch("/api/brands", {
+  const res = await apiFetch("/api/brands", {
     method: "POST",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ workspaceId, ...input }),
@@ -124,7 +125,7 @@ export async function createBrandCompetitor(
 }
 
 export async function removeBrandCompetitor(id: string) {
-  const res = await fetch(`/api/brands/${id}`, {
+  const res = await apiFetch(`/api/brands/${id}`, {
     method: "DELETE",
     headers: userHeaders(),
   });

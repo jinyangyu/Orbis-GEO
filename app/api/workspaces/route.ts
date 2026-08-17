@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { listMonitoringWorkspaces } from "@/lib/metrics/service";
 
 function errorResponse(error: unknown) {
@@ -11,11 +11,11 @@ function errorResponse(error: unknown) {
   return Response.json({ error: message }, { status });
 }
 
-/** List workspaces that have monitoring observations (for dashboard switcher). */
+/** List member workspaces that have monitoring observations. */
 export async function GET(request: Request) {
   try {
-    requireUserId(request);
-    const items = await withDb((db) => listMonitoringWorkspaces(db));
+    const userId = requireUserId(request);
+    const items = await withDb((db) => listMonitoringWorkspaces(db, userId));
     return Response.json({ items });
   } catch (error) {
     return errorResponse(error);

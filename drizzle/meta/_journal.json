@@ -36,6 +36,20 @@
       "when": 1755104000000,
       "tag": "0004_brand_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1755400000000,
+      "tag": "0005_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1755401000000,
+      "tag": "0006_workspace_members",
+      "breakpoints": true
     }
   ]
 }

@@ -62,7 +62,7 @@ erDiagram
 
 | 字段 | 说明 |
 |------|------|
-| id | UUID，一期来自浏览器 `orbis_user_id` / 头 `x-orbis-user-id` |
+| id | UUID；由 `POST /api/auth/bootstrap` 签发 session 时 ensure；可与 localStorage 提示一致 |
 | email | 预留 SIWC，可空 |
 | first_name / last_name / role / source | Onboarding 画像 |
 
@@ -70,9 +70,17 @@ erDiagram
 
 | 字段 | 说明 |
 |------|------|
-| owner_user_id | 一期一用户一工作区（UNIQUE） |
-| name / slug | 名称；slug 首次生成后 upsert 不强制改 |
-| onboarding_completed_at | 完成首次激活时间 |
+| owner_user_id | 账单/主拥有者（UNIQUE 暂保留）；访问控制以 `workspace_members` 为准 |
+
+#### `workspace_members`
+
+| 字段 | 说明 |
+|------|------|
+| workspace_id + user_id | 复合主键 |
+| role | `owner` / `member` |
+
+身份：HttpOnly 签名 Cookie `orbis_session`（`SESSION_SECRET`）。`x-orbis-user-id` 仅用于 bootstrap 提议 userId，**不可**单独授权。  
+本地导入数据可用 `ORBIS_DEV_OPEN_TENANT=1` + `POST /api/workspaces/claim`（生产勿开）。
 
 #### `onboarding_sessions`
 
@@ -178,7 +186,7 @@ Onboarding 完成时：本品 → primary，竞品列表 → competitor（同 do
 |------|------|
 | kind | 如 `overview` / `citations` |
 | filters_json | 生成时过滤条件 |
-| file_path | 本地或对象存储路径 |
+| file_path | `local:ws/id.pdf` / `s3:ws/id.pdf`；旧值 `client-download` 表示仅本机下载未上传 |
 | generated_at | 生成时间 |
 
 不存 PDF 内每一 section 的大 JSON；需要冻结快照时再扩展。
@@ -221,14 +229,15 @@ Onboarding 完成时：本品 → primary，竞品列表 → competitor（同 do
 | POST | `/api/onboarding/reset` | 清草稿 |
 | GET | `/api/workspace` | 当前工作区 + primary brand + prompts + competitors |
 
-身份：请求头 `x-orbis-user-id`（或 cookie `orbis_user_id`）。
+身份：签名 Cookie `orbis_session`（须 `credentials: "include"`）。Bootstrap：`POST /api/auth/bootstrap`。
 
 ### 已实现（监测）
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/workspaces` | 有监测数据的工作区列表（切换器用） |
-| GET | `/api/workspace?workspaceId=` | 按 id 读配置（不限当前登录用户） |
+| GET | `/api/workspaces` | 当前用户 **member** 且有监测数据的工作区 |
+| POST | `/api/workspaces/claim` | 仅 `ORBIS_DEV_OPEN_TENANT=1`：认领导入工作区 |
+| GET | `/api/workspace?workspaceId=` | 按 id 读配置（须为 member） |
 | GET | `/api/metrics/overview` | 总览：覆盖趋势、提及/位次 KPI、Ranking、象限、域名引用、建议 |
 | GET | `/api/metrics/prompts` | Prompt 覆盖率 / 提及 / 域名引用矩阵 |
 | GET | `/api/metrics/prompts/:id` | Prompt 答卷详情（抽屉） |

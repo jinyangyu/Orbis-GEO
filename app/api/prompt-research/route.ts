@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { getWorkspaceForUser } from "@/lib/onboarding/service";
 import {
   getLatestPromptResearchJob,

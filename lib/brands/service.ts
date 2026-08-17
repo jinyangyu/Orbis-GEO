@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, max } from "drizzle-orm";
 import type { AppDb } from "@/db";
-import { workspaceBrands, workspaces } from "@/db/schema";
+import { workspaceBrands } from "@/db/schema";
+import { assertWorkspaceMember } from "@/lib/auth/membership";
 import { newUserId } from "@/lib/identity";
 
 export type BrandStatus = "active" | "detected" | "dismissed";
@@ -69,18 +70,7 @@ export async function assertWorkspaceOwner(
   userId: string,
   workspaceId: string,
 ): Promise<void> {
-  // Demo/local: metrics APIs already allow any monitoring workspace by id.
-  // Imported workspaces (e.g. 考试宝) have a fixed owner_user_id that won't match
-  // the browser's localStorage orbis_user_id — require existence only for now.
-  void userId;
-  const rows = await db
-    .select({ id: workspaces.id })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1);
-  if (!rows[0]) {
-    throw new Error("Workspace not found or access denied");
-  }
+  await assertWorkspaceMember(db, userId, workspaceId);
 }
 
 export async function listActiveBrands(
@@ -323,11 +313,12 @@ export async function deleteCompetitor(
   await db.delete(workspaceBrands).where(eq(workspaceBrands.id, brandId));
 }
 
-/** Seed a few detected brands from citation-like names when queue empty (demo). */
+/** Seed demo detected brands only when ORBIS_DEMO_DETECTED=1. */
 export async function ensureDemoDetectedBrands(
   db: AppDb,
   workspaceId: string,
 ): Promise<void> {
+  if (process.env.ORBIS_DEMO_DETECTED !== "1") return;
   const [totalRow] = await db
     .select({ c: count() })
     .from(workspaceBrands)

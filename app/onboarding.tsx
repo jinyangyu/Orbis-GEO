@@ -113,7 +113,13 @@ export async function resetOnboardingStorage() {
   }
 }
 
-export default function Onboarding({ onComplete }: { onComplete: () => void }) {
+export default function Onboarding({
+  onComplete,
+  onExit,
+}: {
+  onComplete: () => void;
+  onExit?: () => void;
+}) {
   const [state, setState] = useState<OnboardingState>(initialState);
   const [hydrated, setHydrated] = useState(false);
   const [error, setError] = useState("");
@@ -230,7 +236,17 @@ export default function Onboarding({ onComplete }: { onComplete: () => void }) {
 
   return <main className="onboarding-shell">
     <section className="onboarding-form-pane">
-      <header className="onboarding-head"><BrandLockup /><StepDots step={step} /></header>
+      <header className="onboarding-head">
+        <div className="onboarding-head-lead">
+          <BrandLockup />
+          {onExit ? (
+            <button type="button" className="onboarding-exit" onClick={onExit}>
+              ← 返回工作台
+            </button>
+          ) : null}
+        </div>
+        <StepDots step={step} />
+      </header>
       <div className={`onboarding-form ${state.screen === "prompts" || state.screen === "competitors" ? "wide-form" : ""}`}>
         {state.screen === "profile" && <>
           <div className="onboarding-title"><span>开始设置</span><h1>先认识一下你</h1><p>我们会根据你的角色调整工作区与报告方式。</p></div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { apiFetch } from "@/lib/auth/fetch";
 import { buildArticleListSearchParams } from "../lib/seo-agent/query";
 import type { ArticleListItem, ArticleListResponse } from "../lib/seo-agent/types";
 
@@ -80,7 +81,7 @@ export default function ContentArticles({ notify, reloadToken = 0 }: Props) {
       page_size: PAGE_SIZE,
     });
     try {
-      const res = await fetch(`/api/content/articles?${params.toString()}`, {
+      const res = await apiFetch(`/api/content/articles?${params.toString()}`, {
         cache: "no-store",
       });
       const body = (await res.json()) as ArticleListResponse & { error?: string };

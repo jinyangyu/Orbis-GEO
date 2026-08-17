@@ -33,21 +33,44 @@ GRANT ALL PRIVILEGES ON orbis.* TO 'orbis'@'%';
 FLUSH PRIVILEGES;
 ```
 
-2. Set `DATABASE_URL` in `.env.local`:
+2. Set `DATABASE_URL` (and session secrets) in `.env.local`:
 
 ```bash
 DATABASE_URL=mysql://orbis:orbis@127.0.0.1:3306/orbis
+SESSION_SECRET=dev-local-change-me-to-a-long-random-string
+ORBIS_COOKIE_SECURE=0
+ORBIS_DEV_OPEN_TENANT=1
 ```
 
 3. Apply schema:
 
 ```bash
 npm run db:push
-# or: npm run db:generate && npm run db:migrate
+# or apply SQL under drizzle/ (e.g. 0005_notifications.sql, 0006_workspace_members.sql)
 ```
 
-Identity (phase 1): the browser stores a local UUID in `localStorage`
-(`orbis_user_id`) and sends it as `x-orbis-user-id`. SIWC email is reserved on
+Identity (P0): the server issues an **HttpOnly signed cookie** `orbis_session`
+(HMAC with `SESSION_SECRET`). API access requires this cookie (`credentials: "include"`).
+A `localStorage` UUID may still be sent as `x-orbis-user-id` only during
+`POST /api/auth/bootstrap` to propose a stable user id — it is **not** trusted for
+authorization. Workspace data requires a row in `workspace_members`.
+
+For local imported monitoring data (e.g. inspection import), keep
+`ORBIS_DEV_OPEN_TENANT=1` so the app can `POST /api/workspaces/claim` and attach
+those workspaces to your session. **Do not enable that flag in production**
+(`NODE_ENV=production` ignores it).
+
+### Production checklist
+
+- [ ] `NODE_ENV=production` (DEV claim is always off)
+- [ ] `ORBIS_DEV_OPEN_TENANT`, `ORBIS_DEMO_DETECTED`, `ORBIS_HEURISTIC_SENTIMENT` unset
+- [ ] `SESSION_SECRET` ≥32 random characters
+- [ ] `ORBIS_COOKIE_SECURE` not forced to `0` (HTTPS cookies)
+- [ ] `REPORTS_STORAGE` set (`local` disk or `s3`) and writable
+- [ ] Worker security headers enabled (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`)
+- [ ] App is noindex (`app/robots.ts` + layout `robots: { index: false }`)
+
+SIWC email is reserved on
 `users.email` but not required yet.
 
 API surface:
@@ -87,6 +110,15 @@ Rebuild daily metrics after importing facts:
 ```bash
 npm run db:rebuild-daily
 ```
+
+## Health & CI
+
+- `GET /api/health` — readiness (DB ping); `GET /api/health?ready=0` — liveness only
+- `POST /api/client-error` — browser ErrorBoundary reports
+- GitHub Actions: `.github/workflows/ci.yml` runs lint + unit tests
+- Optional live smoke: `ORBIS_E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e`
+
+Dashboard UI is split under `app/dashboard/` (`shell`, `overview`, `prompts`, …); `app/page.tsx` is the thin entry.
 
 ## Included Shape
 
@@ -165,7 +197,7 @@ The「内容生成」page lists articles from the Go agent via a vinext BFF.
 SEO_AGENT_BASE_URL=http://127.0.0.1:8080
 ```
 
-3. Run `pnpm dev`, open the dashboard, and open **内容 → 内容生成**.
+3. Run `npm run dev`, open the dashboard, and open **内容 → 内容生成**.
 
 Browser calls `GET /api/content/articles`, which proxies to
 `GET {SEO_AGENT_BASE_URL}/api/orbis/articles`. Preview links open the agent's

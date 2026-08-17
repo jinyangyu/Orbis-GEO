@@ -302,6 +302,7 @@ export default function BrandSettings({
   const [compDirty, setCompDirty] = useState(false);
 
   const [notifyNewRecs, setNotifyNewRecs] = useState(true);
+  const [webhookUrl, setWebhookUrl] = useState("");
 
   // Transfer list: full catalog + draft membership
   const [catalog, setCatalog] = useState<SettingsPromptView[]>([]);
@@ -331,6 +332,7 @@ export default function BrandSettings({
     setIncludeSubdomains(payload.primary?.includeSubdomains ?? true);
     setCompetitors(payload.competitors);
     setNotifyNewRecs(payload.notifications.notifyNewRecommendations);
+    setWebhookUrl(payload.notifications.notifyWebhookUrl ?? "");
     setCompDirty(false);
     setEditingId(null);
   };
@@ -547,6 +549,7 @@ export default function BrandSettings({
     try {
       const payload = await patchBrandSettingsClient(workspaceId, {
         notifyNewRecommendations: notifyNewRecs,
+        notifyWebhookUrl: webhookUrl,
       });
       applyPayload(payload);
       notify("通知偏好已保存");
@@ -965,6 +968,19 @@ export default function BrandSettings({
               <small>当系统生成新的内容/公关建议时通知我</small>
             </span>
           </label>
+          <label className="bs-field">
+            <span>Webhook URL（可选）</span>
+            <input
+              type="url"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://hooks.example.com/orbis"
+              disabled={!notifyNewRecs}
+            />
+            <small className="bs-help">
+              建议摘要变化时，向该地址 POST JSON；留空则仅站内铃铛通知。
+            </small>
+          </label>
           <div className="bs-actions">
             <button
               type="button"
@@ -977,11 +993,12 @@ export default function BrandSettings({
             <button
               type="button"
               className="pr-cancel"
-              onClick={() =>
+              onClick={() => {
                 setNotifyNewRecs(
                   data?.notifications.notifyNewRecommendations ?? true,
-                )
-              }
+                );
+                setWebhookUrl(data?.notifications.notifyWebhookUrl ?? "");
+              }}
             >
               取消
             </button>

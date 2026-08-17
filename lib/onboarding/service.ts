@@ -5,6 +5,7 @@ import {
   prompts,
   users,
   workspaceBrands,
+  workspaceMembers,
   workspaces,
 } from "@/db/schema";
 import { newUserId } from "@/lib/identity";
@@ -191,6 +192,24 @@ export async function completeOnboarding(
         reportTitle: state.brand.name.trim(),
         slug,
         onboardingCompletedAt: completedAt,
+      });
+    }
+
+    const [existingMember] = await tx
+      .select({ userId: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, wsId),
+          eq(workspaceMembers.userId, userId),
+        ),
+      )
+      .limit(1);
+    if (!existingMember) {
+      await tx.insert(workspaceMembers).values({
+        workspaceId: wsId,
+        userId,
+        role: "owner",
       });
     }
 

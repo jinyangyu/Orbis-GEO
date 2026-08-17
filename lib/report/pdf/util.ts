@@ -55,6 +55,7 @@ export function localizeFilterLabel(label: string): string {
   if (map[label]) return map[label];
   const m = /^Last (\d+) days$/i.exec(label);
   if (m) return `过去 ${m[1]} 天`;
+  // Already zh or custom ISO range — pass through
   return label;
 }
 

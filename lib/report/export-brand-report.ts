@@ -114,7 +114,7 @@ function downloadBlob(blob: Blob, filename: string): string {
 export async function exportBrandReportPdf(
   input: ReportExportInput,
   onProgress?: (pct: number) => void,
-): Promise<{ filename: string; blobUrl: string }> {
+): Promise<{ filename: string; blobUrl: string; blob: Blob }> {
   const tick = (n: number) =>
     onProgress?.(Math.max(0, Math.min(100, Math.round(n))));
   tick(5);
@@ -221,7 +221,7 @@ export async function exportBrandReportPdf(
 
     const blobUrl = downloadBlob(blob, filename);
     tick(100);
-    return { filename, blobUrl };
+    return { filename, blobUrl, blob };
   } finally {
     stage.remove();
     cssEl.remove();

@@ -3,7 +3,8 @@ import {
   bulkSetPromptMembership,
   listSettingsPrompts,
 } from "@/lib/brand-settings/service";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { assertWorkspaceMember } from "@/lib/auth/membership";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { getWorkspaceForUser } from "@/lib/onboarding/service";
 
 function errorResponse(error: unknown) {
@@ -24,7 +25,11 @@ async function resolveWorkspaceId(
   userId: string,
   workspaceIdParam?: string | null,
 ): Promise<string> {
-  if (workspaceIdParam?.trim()) return workspaceIdParam.trim();
+  if (workspaceIdParam?.trim()) {
+    const id = workspaceIdParam.trim();
+    await withDb((db) => assertWorkspaceMember(db, userId, id));
+    return id;
+  }
   const ws = await withDb((db) => getWorkspaceForUser(db, userId));
   if (!ws?.workspace.id) throw new Error("Workspace not found");
   return ws.workspace.id;

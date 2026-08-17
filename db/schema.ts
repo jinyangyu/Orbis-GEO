@@ -54,6 +54,21 @@ export const workspaces = mysqlTable("workspaces", {
   index("workspaces_owner_user_id_idx").on(table.ownerUserId),
 ]);
 
+/** Who can access a workspace (session user must be a member). */
+export const workspaceMembers = mysqlTable(
+  "workspace_members",
+  {
+    workspaceId: char("workspace_id", { length: 36 }).notNull(),
+    userId: char("user_id", { length: 36 }).notNull(),
+    role: mysqlEnum("role", ["owner", "member"]).notNull().default("member"),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.userId] }),
+    index("workspace_members_user_idx").on(table.userId),
+  ],
+);
+
 /** Own brand + competitors in one table. */
 export const workspaceBrands = mysqlTable("workspace_brands", {
   id: char("id", { length: 36 }).primaryKey(),
@@ -96,8 +111,59 @@ export const workspaceSettings = mysqlTable("workspace_settings", {
   notifyNewRecommendations: tinyint("notify_new_recommendations")
     .notNull()
     .default(1),
+  notifyWebhookUrl: varchar("notify_webhook_url", { length: 512 })
+    .notNull()
+    .default(""),
+  lastRecsDigest: varchar("last_recs_digest", { length: 64 })
+    .notNull()
+    .default(""),
   ...timestamps,
 });
+
+export const notificationEvents = mysqlTable(
+  "notification_events",
+  {
+    id: char("id", { length: 36 }).primaryKey(),
+    workspaceId: char("workspace_id", { length: 36 }).notNull(),
+    kind: varchar("kind", { length: 64 }).notNull().default("recommendations"),
+    title: varchar("title", { length: 255 }).notNull().default(""),
+    body: text("body").notNull(),
+    payloadJson: json("payload_json").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("notification_events_workspace_idx").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const notificationDeliveries = mysqlTable(
+  "notification_deliveries",
+  {
+    id: char("id", { length: 36 }).primaryKey(),
+    eventId: char("event_id", { length: 36 }).notNull(),
+    channel: mysqlEnum("channel", ["webhook", "in_app"]).notNull(),
+    status: varchar("status", { length: 32 }).notNull().default("pending"),
+    error: varchar("error", { length: 512 }).notNull().default(""),
+    ...timestamps,
+  },
+  (table) => [index("notification_deliveries_event_idx").on(table.eventId)],
+);
+
+export const notificationReads = mysqlTable(
+  "notification_reads",
+  {
+    userId: char("user_id", { length: 36 }).notNull(),
+    eventId: char("event_id", { length: 36 }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.eventId] }),
+    index("notification_reads_user_idx").on(table.userId),
+  ],
+);
 
 export const prompts = mysqlTable("prompts", {
   id: char("id", { length: 36 }).primaryKey(),

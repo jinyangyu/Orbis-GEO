@@ -198,7 +198,11 @@ export function buildReportPages(input: ReportPagesInput): string[] {
           .map((r, i) => {
             const color = colorByName.get(r.name) || brandColor(i);
             const sent =
-              r.sentiment >= 0 ? `+${r.sentiment}` : String(r.sentiment);
+              r.sentiment == null
+                ? "—"
+                : r.sentiment >= 0
+                  ? `+${r.sentiment}`
+                  : String(r.sentiment);
             return `<tr class="${r.isPrimary ? "primary" : ""}">
               <td>${i + 1}</td>
               <td><span class="name-cell"><i class="dot" style="background:${esc(color)}"></i>${esc(r.name)}</span></td>

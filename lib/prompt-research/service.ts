@@ -1,6 +1,7 @@
 import { desc, eq, max } from "drizzle-orm";
 import type { AppDb } from "@/db";
-import { promptResearchJobs, prompts, workspaces } from "@/db/schema";
+import { promptResearchJobs, prompts } from "@/db/schema";
+import { assertWorkspaceMember } from "@/lib/auth/membership";
 import { newUserId } from "@/lib/identity";
 import { generateResearchPrompts } from "./generate";
 import type {
@@ -14,14 +15,7 @@ async function assertWorkspaceAccess(
   userId: string,
   workspaceId: string,
 ): Promise<void> {
-  const rows = await db
-    .select({ id: workspaces.id, ownerUserId: workspaces.ownerUserId })
-    .from(workspaces)
-    .where(eq(workspaces.id, workspaceId))
-    .limit(1);
-  if (!rows[0] || rows[0].ownerUserId !== userId) {
-    throw new Error("Workspace not found or access denied");
-  }
+  await assertWorkspaceMember(db, userId, workspaceId);
 }
 
 function mapJob(row: typeof promptResearchJobs.$inferSelect): PromptResearchJobView {

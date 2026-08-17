@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import {
   getPromptDetailMetrics,
   resolveWorkspaceId,
@@ -19,11 +19,12 @@ export async function GET(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    requireUserId(request);
+    const userId = requireUserId(request);
     const { id } = await context.params;
     const url = new URL(request.url);
     const workspaceId = await withDb((db) =>
       resolveWorkspaceId(db, {
+        userId,
         workspaceId: url.searchParams.get("workspaceId"),
         slug: url.searchParams.get("slug"),
       }),

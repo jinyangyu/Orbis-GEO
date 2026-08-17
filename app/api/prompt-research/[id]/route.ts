@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { getPromptResearchJob } from "@/lib/prompt-research/service";
 
 function errorResponse(error: unknown) {

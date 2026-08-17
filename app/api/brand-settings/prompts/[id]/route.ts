@@ -1,6 +1,6 @@
 import { withDb } from "@/db";
 import { setPromptActive } from "@/lib/brand-settings/service";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 
 function errorResponse(error: unknown) {
   if (error instanceof UserIdRequiredError) {

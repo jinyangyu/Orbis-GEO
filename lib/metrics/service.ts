@@ -5,6 +5,7 @@ import {
   workspaceBrands,
   workspaces,
 } from "@/db/schema";
+import { assertWorkspaceMember } from "@/lib/auth/membership";
 import {
   formatDeltaCount,
   formatDeltaPct,
@@ -19,6 +20,13 @@ import {
   l3UrlWindowMap,
   previousMetricsRange,
 } from "./l3-aggs";
+import {
+  estimateSentimentBreakdown,
+  likelihoodFromPosition,
+  resolveSentiment,
+  sentimentFromCoverage,
+  visibilityIndex,
+} from "./heuristics";
 import type {
   BrandMatrixRow,
   BrandsMetrics,
@@ -40,6 +48,14 @@ import type {
   TrendPoint,
   WorkspaceListItem,
 } from "./types";
+
+export {
+  estimateSentimentBreakdown,
+  likelihoodFromPosition,
+  resolveSentiment,
+  sentimentFromCoverage,
+  visibilityIndex,
+} from "./heuristics";
 
 const ENGINE_COLORS: Record<string, string> = {
   chatgpt: "#111827",
@@ -65,6 +81,7 @@ export type MetricsQueryOpts = {
   to?: string;
   /** Rolling window length when from is omitted (default 30). */
   days?: number;
+  market?: string;
 };
 
 function isYmd(value: string): boolean {
@@ -137,18 +154,6 @@ function pct(n: number, d: number, digits = 1): number {
   return Number(((100 * n) / d).toFixed(digits));
 }
 
-function visibilityIndex(coverage: number, sov: number, citeShare: number): number {
-  return Number((0.45 * coverage + 0.35 * sov + 0.2 * citeShare).toFixed(1));
-}
-
-/** Map average mention position → 0–100 "Likelihood to buy" (Otterly Y-axis). */
-function likelihoodFromPosition(avgPosition: number | null): number {
-  if (avgPosition == null || avgPosition <= 0) return 0;
-  return Number(
-    Math.max(0, Math.min(100, 100 - (avgPosition - 1) * 12.5)).toFixed(1),
-  );
-}
-
 function buildBviFrames(
   brands: Array<{
     brandId: string;
@@ -198,47 +203,6 @@ function statusFromCoverage(coverage: number, competitorMentions: number): strin
   if (coverage >= 40) return "稳定";
   if (competitorMentions > 0 && coverage < 35) return "风险";
   return "机会";
-}
-
-function sentimentFromCoverage(coverage: number): number {
-  if (coverage >= 60) return 86;
-  if (coverage >= 40) return 74;
-  return 62;
-}
-
-/** Deterministic pos/neu/neg split from mention count + sentiment score (v1 heuristic). */
-export function estimateSentimentBreakdown(
-  mentions: number,
-  sentimentScore: number,
-): NonNullable<BrandMatrixRow["sentimentBreakdown"]> {
-  const total = Math.max(1, Math.round(mentions));
-  // Map score 50–100 → positive weight ~0.35–0.75
-  const posW = Math.min(0.78, Math.max(0.28, (sentimentScore - 40) / 80));
-  const negW = Math.min(0.35, Math.max(0.08, (95 - sentimentScore) / 120));
-  const neuW = Math.max(0.1, 1 - posW - negW);
-  const sumW = posW + neuW + negW;
-  let positive = Math.round((posW / sumW) * total);
-  let negative = Math.round((negW / sumW) * total);
-  let neutral = Math.max(0, total - positive - negative);
-  // Fix rounding drift
-  const drift = total - (positive + neutral + negative);
-  neutral = Math.max(0, neutral + drift);
-  const positivePct = Math.round((positive / total) * 100);
-  const negativePct = Math.round((negative / total) * 100);
-  const neutralPct = Math.max(0, 100 - positivePct - negativePct);
-  let label: "Positive" | "Neutral" | "Negative" | "Mixed" = "Mixed";
-  if (positivePct >= 55) label = "Positive";
-  else if (negativePct >= 45) label = "Negative";
-  else if (neutralPct >= 50) label = "Neutral";
-  return {
-    positive,
-    neutral,
-    negative,
-    positivePct,
-    neutralPct,
-    negativePct,
-    label,
-  };
 }
 
 function intentFromCoverage(coverage: number, stored?: string | null): string {
@@ -291,6 +255,7 @@ function rowsOf(result: unknown): Array<Record<string, unknown>> {
 
 export async function listMonitoringWorkspaces(
   db: AppDb,
+  userId: string,
 ): Promise<WorkspaceListItem[]> {
   const result = await db.execute(sql`
     SELECT
@@ -302,6 +267,8 @@ export async function listMonitoringWorkspaces(
       pb.domain AS brand_domain,
       COUNT(o.id) AS observation_count
     FROM workspaces w
+    INNER JOIN workspace_members m
+      ON m.workspace_id = w.id AND m.user_id = ${userId}
     INNER JOIN answer_observations o ON o.workspace_id = w.id
     LEFT JOIN workspace_brands pb
       ON pb.workspace_id = w.id AND pb.role = 'primary'
@@ -350,6 +317,7 @@ type MentionAgg = {
   mentionedObs: number;
   mentionSum: number;
   avgPosition: number | null;
+  avgSentiment: number | null;
 };
 
 function engineSql(engineCode?: string) {
@@ -358,13 +326,19 @@ function engineSql(engineCode?: string) {
     : sql``;
 }
 
+function marketSql(market?: string) {
+  const m = market?.trim();
+  return m ? sql`AND o.market = ${m}` : sql``;
+}
+
 async function brandMentionAggs(
   db: AppDb,
   workspaceId: string,
   engineCode: string | undefined,
   range: MetricsRange,
+  market?: string,
 ): Promise<{ totalObs: number; byBrand: Map<string, MentionAgg> }> {
-  if (!engineCode && (await l3HasData(db, workspaceId, range))) {
+  if (!engineCode && !market && (await l3HasData(db, workspaceId, range))) {
     const l3 = await l3BrandMentionAggs(db, workspaceId, range);
     const byBrand = new Map<string, MentionAgg>();
     for (const [id, row] of l3.byBrand) {
@@ -373,6 +347,7 @@ async function brandMentionAggs(
         mentionedObs: row.mentionedObs,
         mentionSum: row.mentionSum,
         avgPosition: row.avgPosition,
+        avgSentiment: null,
       });
     }
     return { totalObs: l3.totalObs, byBrand };
@@ -380,6 +355,7 @@ async function brandMentionAggs(
 
   const engineFilter = engineSql(engineCode);
   const dateFilter = dateFilterSql(range);
+  const marketFilter = marketSql(market);
 
   const obsRows = await db.execute(sql`
     SELECT COUNT(*) AS c
@@ -388,6 +364,7 @@ async function brandMentionAggs(
     WHERE o.workspace_id = ${workspaceId}
     ${dateFilter}
     ${engineFilter}
+    ${marketFilter}
   `);
   const totalObs = Number(rowsOf(obsRows)[0]?.c ?? 0);
 
@@ -396,13 +373,15 @@ async function brandMentionAggs(
       abm.brand_id AS brand_id,
       SUM(CASE WHEN abm.mentioned = 1 THEN 1 ELSE 0 END) AS mentioned_obs,
       SUM(abm.mentioned) AS mention_sum,
-      AVG(CASE WHEN abm.mentioned = 1 THEN abm.position END) AS avg_position
+      AVG(CASE WHEN abm.mentioned = 1 THEN abm.position END) AS avg_position,
+      AVG(CASE WHEN abm.mentioned = 1 AND abm.sentiment IS NOT NULL THEN abm.sentiment END) AS avg_sentiment
     FROM answer_brand_mentions abm
     INNER JOIN answer_observations o ON o.id = abm.observation_id
     LEFT JOIN engines e ON e.id = o.engine_id
     WHERE o.workspace_id = ${workspaceId}
     ${dateFilter}
     ${engineFilter}
+    ${marketFilter}
     GROUP BY abm.brand_id
   `);
 
@@ -413,6 +392,10 @@ async function brandMentionAggs(
       mentionedObs: Number(row.mentioned_obs ?? 0),
       mentionSum: Number(row.mention_sum ?? 0),
       avgPosition: row.avg_position == null ? null : Number(Number(row.avg_position).toFixed(2)),
+      avgSentiment:
+        row.avg_sentiment == null
+          ? null
+          : Number(Number(row.avg_sentiment).toFixed(0)),
     });
   }
   return { totalObs, byBrand };
@@ -423,13 +406,15 @@ async function domainCitationAggs(
   workspaceId: string,
   engineCode: string | undefined,
   range: MetricsRange,
+  market?: string,
 ) {
-  if (!engineCode && (await l3HasData(db, workspaceId, range))) {
+  if (!engineCode && !market && (await l3HasData(db, workspaceId, range))) {
     return l3DomainCitationAggs(db, workspaceId, range);
   }
 
   const engineFilter = engineSql(engineCode);
   const dateFilter = dateFilterSql(range);
+  const marketFilter = marketSql(market);
   const result = await db.execute(sql`
     SELECT
       ce.domain AS domain,
@@ -442,6 +427,7 @@ async function domainCitationAggs(
     WHERE o.workspace_id = ${workspaceId}
     ${dateFilter}
     ${engineFilter}
+    ${marketFilter}
     GROUP BY ce.domain, category
     ORDER BY citations DESC
   `);
@@ -474,6 +460,7 @@ function buildMatrix(
       mentionedObs: 0,
       mentionSum: 0,
       avgPosition: null,
+      avgSentiment: null,
     };
     const coverage = pct(agg.mentionedObs, totalObs);
     const sovPercent = pct(agg.mentionSum, totalMentions);
@@ -481,7 +468,7 @@ function buildMatrix(
       .filter((d) => domainsMatch(d.domain, b.domain))
       .reduce((s, d) => s + d.citations, 0);
     const citeShare = pct(domainCitations, totalCites);
-    const sentiment = sentimentFromCoverage(coverage);
+    const sentiment = resolveSentiment(agg.avgSentiment, coverage);
     return {
       brandId: b.id,
       name: b.name,
@@ -490,7 +477,10 @@ function buildMatrix(
       coverage,
       sovPercent,
       sentiment,
-      sentimentBreakdown: estimateSentimentBreakdown(agg.mentionSum, sentiment),
+      sentimentBreakdown:
+        sentiment != null
+          ? estimateSentimentBreakdown(agg.mentionSum, sentiment)
+          : undefined,
       mentions: agg.mentionSum,
       domainCitations,
       avgPosition: agg.avgPosition,
@@ -690,7 +680,7 @@ export async function getPromptsMetrics(
     const comps = compsByPrompt.get(p.id) ?? [];
     const tags = Array.isArray(p.tags) ? p.tags : [];
     const tag = tags[0] || inferTag(p.text);
-    const sentiment = sentimentFromCoverage(coverage);
+    const sentiment = resolveSentiment(null, coverage);
     return {
       promptId: p.id,
       q: p.text,
@@ -708,10 +698,10 @@ export async function getPromptsMetrics(
       domainMentions: agg.primaryCites,
       totalDomainCitations: agg.totalDomainCites,
       intentVolume: intentFromCoverage(coverage, p.intentVolume),
-      sentimentBreakdown: estimateSentimentBreakdown(
-        agg.primaryMentions,
-        sentiment,
-      ),
+      sentimentBreakdown:
+        sentiment != null
+          ? estimateSentimentBreakdown(agg.primaryMentions, sentiment)
+          : undefined,
     };
   });
 
@@ -779,12 +769,14 @@ export async function getOverviewMetrics(
     workspaceId,
     engineCode,
     range,
+    opts?.market,
   );
   const primaryAgg = byBrand.get(primary.id) ?? {
     brandId: primary.id,
     mentionedObs: 0,
     mentionSum: 0,
     avgPosition: null,
+    avgSentiment: null,
   };
   const totalMentions = [...byBrand.values()].reduce((s, b) => s + b.mentionSum, 0);
   const coverage = pct(primaryAgg.mentionedObs, totalObs);
@@ -795,6 +787,7 @@ export async function getOverviewMetrics(
     workspaceId,
     engineCode,
     range,
+    opts?.market,
   );
   const primaryCites = domainRows
     .filter((d) => domainsMatch(d.domain, primary.domain))
@@ -859,11 +852,11 @@ export async function getOverviewMetrics(
   const prevRange = previousMetricsRange(range);
   const prevAggs =
     !engineCode && (await l3HasData(db, workspaceId, prevRange))
-      ? await brandMentionAggs(db, workspaceId, undefined, prevRange)
+      ? await brandMentionAggs(db, workspaceId, undefined, prevRange, opts?.market)
       : null;
   const prevDomains =
     !engineCode && prevAggs
-      ? await domainCitationAggs(db, workspaceId, undefined, prevRange)
+      ? await domainCitationAggs(db, workspaceId, undefined, prevRange, opts?.market)
       : null;
   const prevPrimary = prevAggs?.byBrand.get(primary.id);
   const prevTotalMentions = prevAggs
@@ -996,28 +989,31 @@ export async function getOverviewMetrics(
     .filter((p) => p.coverage < 40)
     .sort((a, b) => a.coverage - b.coverage)
     .slice(0, 4)
-    .map((p) => ({
-      promptId: p.promptId,
-      q: p.q,
-      tag: inferTag(p.q),
-      market: "",
-      coverage: p.coverage,
-      sentiment: sentimentFromCoverage(p.coverage),
-      mentions: p.primaryMentions,
-      citations: p.domainMentions,
-      competitor: "—",
-      competitors: [] as string[],
-      status: statusFromCoverage(p.coverage, 0),
-      brandMentions: p.primaryMentions,
-      totalBrandMentions: p.primaryMentions,
-      domainMentions: p.domainMentions,
-      totalDomainCitations: p.domainMentions,
-      intentVolume: intentFromCoverage(p.coverage),
-      sentimentBreakdown: estimateSentimentBreakdown(
-        p.primaryMentions,
-        sentimentFromCoverage(p.coverage),
-      ),
-    }));
+    .map((p) => {
+      const sentiment = resolveSentiment(null, p.coverage);
+      return {
+        promptId: p.promptId,
+        q: p.q,
+        tag: inferTag(p.q),
+        market: "",
+        coverage: p.coverage,
+        sentiment,
+        mentions: p.primaryMentions,
+        citations: p.domainMentions,
+        competitor: "—",
+        competitors: [] as string[],
+        status: statusFromCoverage(p.coverage, 0),
+        brandMentions: p.primaryMentions,
+        totalBrandMentions: p.primaryMentions,
+        domainMentions: p.domainMentions,
+        totalDomainCitations: p.domainMentions,
+        intentVolume: intentFromCoverage(p.coverage),
+        sentimentBreakdown:
+          sentiment != null
+            ? estimateSentimentBreakdown(p.primaryMentions, sentiment)
+            : undefined,
+      };
+    });
 
   const topPromptsByMentions: PromptCountRow[] = [...promptStats]
     .sort((a, b) => b.primaryMentions - a.primaryMentions)
@@ -1663,6 +1659,7 @@ export async function getPromptDetailMetrics(
   const obsCount = Number(agg.obs ?? 0);
   const primaryMentions = Number(agg.primary_mentions ?? 0);
   const coverage = pct(primaryMentions, obsCount, 0);
+  const sentiment = resolveSentiment(null, coverage);
   const tags = Array.isArray(promptRow.tags) ? promptRow.tags : [];
   const prompt: PromptMetricRow = {
     promptId: promptRow.id,
@@ -1670,7 +1667,7 @@ export async function getPromptDetailMetrics(
     tag: tags[0] || inferTag(promptRow.text),
     market: promptRow.market || "",
     coverage,
-    sentiment: sentimentFromCoverage(coverage),
+    sentiment,
     mentions: primaryMentions,
     citations: 0,
     competitor: "—",
@@ -1681,10 +1678,10 @@ export async function getPromptDetailMetrics(
     domainMentions: 0,
     totalDomainCitations: 0,
     intentVolume: intentFromCoverage(coverage, promptRow.intentVolume),
-    sentimentBreakdown: estimateSentimentBreakdown(
-      primaryMentions,
-      sentimentFromCoverage(coverage),
-    ),
+    sentimentBreakdown:
+      sentiment != null
+        ? estimateSentimentBreakdown(primaryMentions, sentiment)
+        : undefined,
   };
 
   const obs = await db.execute(sql`
@@ -1757,7 +1754,11 @@ export async function getPromptDetailMetrics(
 
 export async function resolveWorkspaceId(
   db: AppDb,
-  opts: { workspaceId?: string | null; slug?: string | null },
+  opts: {
+    userId: string;
+    workspaceId?: string | null;
+    slug?: string | null;
+  },
 ): Promise<string | null> {
   if (opts.workspaceId) {
     const [row] = await db
@@ -1765,7 +1766,11 @@ export async function resolveWorkspaceId(
       .from(workspaces)
       .where(eq(workspaces.id, opts.workspaceId))
       .limit(1);
-    if (row) return row.id;
+    if (row) {
+      await assertWorkspaceMember(db, opts.userId, row.id);
+      return row.id;
+    }
+    return null;
   }
   if (opts.slug) {
     const [row] = await db
@@ -1773,8 +1778,12 @@ export async function resolveWorkspaceId(
       .from(workspaces)
       .where(eq(workspaces.slug, opts.slug))
       .limit(1);
-    if (row) return row.id;
+    if (row) {
+      await assertWorkspaceMember(db, opts.userId, row.id);
+      return row.id;
+    }
+    return null;
   }
-  const list = await listMonitoringWorkspaces(db);
+  const list = await listMonitoringWorkspaces(db, opts.userId);
   return list[0]?.id ?? null;
 }

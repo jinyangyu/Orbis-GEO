@@ -75,6 +75,9 @@ export function PromptResearch({
   const [items, setItems] = useState<ResearchPromptItem[]>([]);
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [jobId, setJobId] = useState<string | null>(null);
+  const [resultEngine, setResultEngine] = useState<"llm" | "heuristic" | null>(
+    null,
+  );
   const [promoting, setPromoting] = useState(false);
 
   useEffect(() => {
@@ -93,6 +96,7 @@ export function PromptResearch({
         setJobId(job.id);
         setMode(job.mode);
         setItems(job.result.prompts);
+        setResultEngine(job.result.engine ?? null);
         const sel: Record<number, boolean> = {};
         job.result.prompts.forEach((_, i) => {
           sel[i] = i < 8;
@@ -121,6 +125,7 @@ export function PromptResearch({
     setItems([]);
     setSelected({});
     setJobId(null);
+    setResultEngine(null);
   };
 
   const start = async () => {
@@ -170,6 +175,7 @@ export function PromptResearch({
       }
       const prompts = job.result?.prompts ?? [];
       setItems(prompts);
+      setResultEngine(job.result?.engine ?? null);
       const sel: Record<number, boolean> = {};
       prompts.forEach((_, i) => {
         sel[i] = i < 8;
@@ -268,6 +274,11 @@ export function PromptResearch({
             <p className="pr-sub">
               共 {items.length} 条建议
               {jobId ? ` · 任务 ${jobId.slice(0, 8)}` : ""}
+              {resultEngine === "heuristic"
+                ? " · 启发式模板（未配置 OPENAI_API_KEY）"
+                : resultEngine === "llm"
+                  ? " · 大模型生成"
+                  : ""}
             </p>
           </div>
           <div className="pr-actions">

@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import {
   createCompetitor,
   listActiveBrands,
@@ -27,7 +27,11 @@ async function resolveWorkspaceId(
   workspaceIdParam?: string | null,
 ): Promise<string> {
   return withDb(async (db) => {
-    if (workspaceIdParam) return workspaceIdParam;
+    const { assertWorkspaceMember } = await import("@/lib/auth/membership");
+    if (workspaceIdParam) {
+      await assertWorkspaceMember(db, userId, workspaceIdParam);
+      return workspaceIdParam;
+    }
     const ws = await getWorkspaceForUser(db, userId);
     if (!ws?.workspace.id) throw new Error("Workspace not found");
     return ws.workspace.id;

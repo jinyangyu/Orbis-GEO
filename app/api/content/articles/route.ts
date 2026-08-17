@@ -1,5 +1,10 @@
 import { agentArticlesURL } from "../../../../lib/seo-agent/query";
 import type { ArticleListQuery, ArticleListResponse } from "../../../../lib/seo-agent/types";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import {
+  allowRateLimit,
+  tooManyRequests,
+} from "@/lib/http/rate-limit";
 
 function readQuery(request: Request): ArticleListQuery {
   const url = new URL(request.url);
@@ -21,6 +26,23 @@ function readQuery(request: Request): ArticleListQuery {
 }
 
 export async function GET(request: Request) {
+  try {
+    const userId = requireUserId(request);
+    if (
+      !allowRateLimit(`articles:${userId}`, {
+        windowMs: 60_000,
+        max: 60,
+      })
+    ) {
+      return tooManyRequests(60);
+    }
+  } catch (error) {
+    if (error instanceof UserIdRequiredError) {
+      return Response.json({ error: error.message }, { status: 401 });
+    }
+    throw error;
+  }
+
   const base = (process.env.SEO_AGENT_BASE_URL ?? "").trim();
   if (!base) {
     return Response.json(

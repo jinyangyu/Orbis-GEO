@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { deleteCompetitor, updateBrand } from "@/lib/brands/service";
 
 function errorResponse(error: unknown) {

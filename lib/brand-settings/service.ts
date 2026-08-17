@@ -12,6 +12,7 @@ import {
   updateBrand,
   type BrandRowView,
 } from "@/lib/brands/service";
+import { assertSafeOutboundUrl } from "@/lib/http/safe-url";
 
 export type SettingsPromptView = {
   id: string;
@@ -29,6 +30,7 @@ export type BrandSettingsPayload = {
   competitors: BrandRowView[];
   notifications: {
     notifyNewRecommendations: boolean;
+    notifyWebhookUrl: string;
   };
   promptStats: {
     total: number;
@@ -108,6 +110,7 @@ export async function getBrandSettings(
     competitors: brands.competitors,
     notifications: {
       notifyNewRecommendations: settings.notifyNewRecommendations === 1,
+      notifyWebhookUrl: settings.notifyWebhookUrl || "",
     },
     promptStats: {
       total: Number(stats?.total ?? 0),
@@ -128,6 +131,7 @@ export async function patchBrandSettings(
     domainAliases?: string[];
     includeSubdomains?: boolean;
     notifyNewRecommendations?: boolean;
+    notifyWebhookUrl?: string;
   },
 ): Promise<BrandSettingsPayload> {
   await assertWorkspaceOwner(db, userId, workspaceId);
@@ -166,13 +170,28 @@ export async function patchBrandSettings(
     }
   }
 
-  if (patch.notifyNewRecommendations !== undefined) {
+  if (
+    patch.notifyNewRecommendations !== undefined ||
+    patch.notifyWebhookUrl !== undefined
+  ) {
     await ensureSettings(db, workspaceId);
+    const set: {
+      notifyNewRecommendations?: number;
+      notifyWebhookUrl?: string;
+    } = {};
+    if (patch.notifyNewRecommendations !== undefined) {
+      set.notifyNewRecommendations = patch.notifyNewRecommendations ? 1 : 0;
+    }
+    if (patch.notifyWebhookUrl !== undefined) {
+      const url = patch.notifyWebhookUrl.trim().slice(0, 512);
+      if (url) {
+        assertSafeOutboundUrl(url);
+      }
+      set.notifyWebhookUrl = url;
+    }
     await db
       .update(workspaceSettings)
-      .set({
-        notifyNewRecommendations: patch.notifyNewRecommendations ? 1 : 0,
-      })
+      .set(set)
       .where(eq(workspaceSettings.workspaceId, workspaceId));
   }
 

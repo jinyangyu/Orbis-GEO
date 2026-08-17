@@ -1,5 +1,6 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { assertWorkspaceMember } from "@/lib/auth/membership";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { resolveWorkspaceId } from "@/lib/metrics/service";
 import {
   getWorkspaceById,
@@ -16,7 +17,12 @@ function errorResponse(error: unknown) {
       ? error.cause.message
       : "";
   const combined = cause ? `${message} (${cause})` : message;
-  const status = message.includes("DATABASE_URL") ? 503 : 500;
+  const status =
+    message.includes("access denied") || message.includes("not found")
+      ? 404
+      : message.includes("DATABASE_URL")
+        ? 503
+        : 500;
   return Response.json({ error: combined }, { status });
 }
 
@@ -28,9 +34,12 @@ export async function GET(request: Request) {
     const slug = url.searchParams.get("slug");
 
     const workspace = await withDb(async (db) => {
-      if (workspaceIdParam) return getWorkspaceById(db, workspaceIdParam);
+      if (workspaceIdParam) {
+        await assertWorkspaceMember(db, userId, workspaceIdParam);
+        return getWorkspaceById(db, workspaceIdParam);
+      }
       if (slug) {
-        const id = await resolveWorkspaceId(db, { slug });
+        const id = await resolveWorkspaceId(db, { userId, slug });
         return id ? getWorkspaceById(db, id) : null;
       }
       return getWorkspaceForUser(db, userId);

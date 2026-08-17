@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/auth/fetch";
 import {
   authHeaders,
   getOrCreateClientUserId,
@@ -53,12 +54,12 @@ export type MetricsFetchOpts = {
   days?: number;
   from?: string;
   to?: string;
+  market?: string;
   signal?: AbortSignal;
 };
 
 async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(url, {
-    headers: userHeaders(),
+  const res = await apiFetch(url, {
     cache: "no-store",
     signal,
   });
@@ -69,45 +70,13 @@ async function getJson<T>(url: string, signal?: AbortSignal): Promise<T> {
   return (await res.json()) as T;
 }
 
-export function daysFromRangeLabel(label: string): number {
-  if (/14/.test(label)) return 14;
-  if (/60/.test(label)) return 60;
-  if (/7\b/.test(label) && !/14|30|60|90/.test(label)) return 7;
-  if (/90/.test(label)) return 90;
-  if (/月/.test(label) || /month/i.test(label)) return 30;
-  return 30;
-}
-
-/** Map UI engine select label → engine code filter (optional). */
-export function engineFilterFromLabel(label: string): string | undefined {
-  if (!label || label === "全部平台" || label === "All Engines") return undefined;
-  const map: Record<string, string> = {
-    ChatGPT: "gpt",
-    DeepSeek: "deepseek",
-    Doubao: "doubao",
-    GPT: "gpt",
-    Perplexity: "perplexity",
-    "Google AI": "google",
-    "Google AI Overview": "google",
-    Gemini: "gemini",
-    "Google Gemini": "gemini",
-    Copilot: "copilot",
-    "Microsoft Copilot": "copilot",
-    Claude: "claude",
-  };
-  if (map[label]) return map[label];
-  // fuzzy: match by lowercase includes
-  const lower = label.toLowerCase();
-  if (lower.includes("chatgpt") || lower === "gpt") return "gpt";
-  if (lower.includes("deepseek")) return "deepseek";
-  if (lower.includes("doubao") || lower.includes("豆包")) return "doubao";
-  if (lower.includes("perplexity")) return "perplexity";
-  if (lower.includes("gemini")) return "gemini";
-  if (lower.includes("copilot")) return "copilot";
-  if (lower.includes("claude")) return "claude";
-  if (lower.includes("google")) return "google";
-  return undefined;
-}
+export {
+  daysFromRangeLabel,
+  engineFilterFromLabel,
+  isAllEnginesLabel,
+  isAllMarketsLabel,
+  isAllTagsLabel,
+} from "./filters";
 
 
 export async function fetchMonitoringWorkspaces(
@@ -124,8 +93,7 @@ export async function fetchWorkspaceById(
   workspaceId: string,
   signal?: AbortSignal,
 ): Promise<WorkspacePayload | null> {
-  const res = await fetch(`/api/workspace${qs({ workspaceId })}`, {
-    headers: userHeaders(),
+  const res = await apiFetch(`/api/workspace${qs({ workspaceId })}`, {
     cache: "no-store",
     signal,
   });
@@ -149,6 +117,7 @@ export async function fetchOverviewMetrics(
       days: opts?.days,
       from: opts?.from,
       to: opts?.to,
+      market: opts?.market,
     })}`,
     opts?.signal,
   );

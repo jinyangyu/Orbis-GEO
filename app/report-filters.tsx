@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { t } from "@/lib/i18n";
 import {
   DATE_PRESETS,
   MONTH_NAMES,
@@ -11,6 +12,11 @@ import {
   toISODate,
   type DateRangeValue,
 } from "@/lib/report/date-range";
+import {
+  isAllEnginesLabel,
+  isAllMarketsLabel,
+  isAllTagsLabel,
+} from "@/lib/metrics/filters";
 
 export type EngineOption = { code: string; name: string; mark: string };
 
@@ -29,6 +35,7 @@ type Props = {
   promptTotal: number;
   filteredPromptCount?: number;
   onReset: () => void;
+  busy?: boolean;
 };
 
 export default function ReportFilters({
@@ -46,18 +53,22 @@ export default function ReportFilters({
   promptTotal,
   filteredPromptCount,
   onReset,
+  busy = false,
 }: Props) {
   const [open, setOpen] = useState<"date" | "tag" | "engine" | "market" | null>(
     null,
   );
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const allEngines = t("filter.allEngines");
+  const allTags = t("filter.allTags");
+  const allMarkets = t("filter.allMarkets");
   const showing =
     filteredPromptCount == null ? promptTotal : filteredPromptCount;
   const filtersDirty =
     dateRange.preset !== "30" ||
-    engine !== "All Engines" ||
-    tag !== "All tags" ||
-    (market !== "All markets" && market !== "");
+    !isAllEnginesLabel(engine) ||
+    !isAllTagsLabel(tag) ||
+    !isAllMarketsLabel(market);
 
   useEffect(() => {
     if (!open) return;
@@ -76,7 +87,7 @@ export default function ReportFilters({
   }, [open]);
 
   return (
-    <div className="report-filters" ref={rootRef}>
+    <div className="report-filters" ref={rootRef} aria-busy={busy || undefined}>
       <div className="filter-row">
         <div className="filter-slot">
           <FilterChip
@@ -103,7 +114,7 @@ export default function ReportFilters({
           />
           {open === "tag" && (
             <SimpleMenu
-              options={["All tags", ...tags]}
+              options={[allTags, ...tags]}
               value={tag}
               onPick={(v) => {
                 onTagChange(v);
@@ -122,6 +133,7 @@ export default function ReportFilters({
             <EngineMenu
               engines={engines}
               value={engine}
+              allLabel={allEngines}
               onPick={(v) => {
                 onEngineChange(v);
                 setOpen(null);
@@ -132,15 +144,15 @@ export default function ReportFilters({
         <div className="filter-slot">
           <FilterChip
             active={open === "market"}
-            label={market || "All markets"}
+            label={market || allMarkets}
             onClick={() => setOpen((v) => (v === "market" ? null : "market"))}
           />
           {open === "market" && (
             <SimpleMenu
-              options={["All markets", ...markets]}
-              value={market || "All markets"}
+              options={[allMarkets, ...markets]}
+              value={market || allMarkets}
               onPick={(v) => {
-                onMarketChange(v === "All markets" ? "" : v);
+                onMarketChange(v === allMarkets ? "" : v);
                 setOpen(null);
               }}
             />
@@ -149,16 +161,17 @@ export default function ReportFilters({
       </div>
 
       <p className="filter-summary">
-        Report based on <b>{promptTotal}</b> prompts.
+        {t("report.basedOn", { n: promptTotal })}
+        <span className="filter-range">
+          {" · "}
+          {dateRange.from} ～ {dateRange.to}
+        </span>
         {filteredPromptCount != null && (
-          <>
-            {" "}
-            Showing <b>{showing}</b> filtered prompts.
-          </>
+          <> {t("report.showingFiltered", { n: showing })}</>
         )}
         {filtersDirty && (
           <button type="button" className="reset-filters" onClick={onReset}>
-            Reset filters
+            {t("action.resetFilters")}
           </button>
         )}
       </p>
@@ -198,19 +211,23 @@ function SimpleMenu({
 }) {
   return (
     <ul className="filter-menu" role="listbox">
-      {options.map((opt) => (
-        <li key={opt}>
-          <button
-            type="button"
-            role="option"
-            aria-selected={opt === value}
-            className={opt === value ? "active" : ""}
-            onClick={() => onPick(opt)}
-          >
-            {opt}
-          </button>
-        </li>
-      ))}
+          {options.length ? (
+            options.map((opt) => (
+              <li key={opt}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={opt === value}
+                  className={opt === value ? "active" : ""}
+                  onClick={() => onPick(opt)}
+                >
+                  {opt}
+                </button>
+              </li>
+            ))
+          ) : (
+            <li className="filter-empty">暂无可选项</li>
+          )}
     </ul>
   );
 }
@@ -218,10 +235,12 @@ function SimpleMenu({
 function EngineMenu({
   engines,
   value,
+  allLabel,
   onPick,
 }: {
   engines: EngineOption[];
   value: string;
+  allLabel: string;
   onPick: (v: string) => void;
 }) {
   return (
@@ -229,18 +248,18 @@ function EngineMenu({
       <li>
         <button
           type="button"
-          className={value === "All Engines" ? "active" : ""}
-          onClick={() => onPick("All Engines")}
+          className={isAllEnginesLabel(value) ? "active" : ""}
+          onClick={() => onPick(allLabel)}
         >
           <i className="engine-mark all">∗</i>
-          All Engines
+          {allLabel}
         </button>
       </li>
       {engines.map((e) => (
         <li key={e.code}>
           <button
             type="button"
-            className={value === e.name ? "active" : ""}
+            className={value === e.name || value === e.code ? "active" : ""}
             onClick={() => onPick(e.name)}
           >
             <i className="engine-mark">{e.mark}</i>
@@ -261,11 +280,17 @@ function DatePopover({
   onChange: (v: DateRangeValue) => void;
   onClose: () => void;
 }) {
-  const anchor = parseISODate(value.to);
+  const start = parseISODate(value.from);
   const [view, setView] = useState(
-    () => new Date(anchor.getFullYear(), anchor.getMonth(), 1),
+    () => new Date(start.getFullYear(), start.getMonth(), 1),
   );
   const [draftStart, setDraftStart] = useState<string | null>(null);
+
+  useEffect(() => {
+    const from = parseISODate(value.from);
+    setView(new Date(from.getFullYear(), from.getMonth(), 1));
+    setDraftStart(null);
+  }, [value.from, value.to, value.preset]);
   const left = view;
   const right = useMemo(
     () => new Date(view.getFullYear(), view.getMonth() + 1, 1),
@@ -291,16 +316,16 @@ function DatePopover({
   };
 
   return (
-    <div className="date-popover" role="dialog" aria-label="Date range">
+    <div className="date-popover" role="dialog" aria-label={t("date.custom")}>
       <aside className="date-presets">
         {DATE_PRESETS.map((p) => (
           <button
             key={p.id}
             type="button"
             className={value.preset === p.id ? "active" : ""}
-            onClick={() => onChange(buildPresetRange(p.id))}
+            onClick={() => onChange(buildPresetRange(p.id, new Date(), t(p.labelKey)))}
           >
-            {p.label}
+            {t(p.labelKey)}
           </button>
         ))}
       </aside>
@@ -364,6 +389,12 @@ function DatePopover({
             onPick={pickDay}
           />
         </div>
+        <p className="date-hint">
+          {value.from} → {value.to}
+          {draftStart
+            ? " · 已选起始日，再点结束日"
+            : " · 点选两个日期可自定义范围"}
+        </p>
       </div>
     </div>
   );
@@ -387,13 +418,14 @@ function MonthCal({
   onPick: (d: Date) => void;
 }) {
   const rows = monthMatrix(year, month);
+  const monthLabel = t(`month.${month}`) || MONTH_NAMES[month];
   return (
     <div className="month-cal">
       <h4>
-        {MONTH_NAMES[month]} {year}
+        {monthLabel} {year}
       </h4>
       <div className="dow">
-        {"SMTWTFS".split("").map((d, i) => (
+        {"日一二三四五六".split("").map((d, i) => (
           <span key={`${d}-${i}`}>{d}</span>
         ))}
       </div>
@@ -410,7 +442,7 @@ function MonthCal({
               <button
                 key={ci}
                 type="button"
-                className={`day${start || end || draft ? " edge" : ""}${mid ? " mid" : ""}`}
+                className={`day${start || end ? " edge" : ""}${mid ? " mid" : ""}${draft ? " draft" : ""}`}
                 onClick={() => onPick(cell)}
               >
                 {cell.getDate()}

@@ -8,7 +8,12 @@ export function SentimentCell({ row }: { row: BrandMatrixRow }) {
   const [pos, setPos] = useState({ top: 0, left: 0 });
   const cellRef = useRef<HTMLTableCellElement>(null);
   const bd = row.sentimentBreakdown;
-  const display = row.sentiment >= 0 ? `+${row.sentiment}` : String(row.sentiment);
+  const hasValue = row.sentiment != null;
+  const display = hasValue
+    ? row.sentiment! >= 0
+      ? `+${row.sentiment}`
+      : String(row.sentiment)
+    : "—";
 
   useEffect(() => {
     if (!open || !cellRef.current) return;
@@ -23,12 +28,20 @@ export function SentimentCell({ row }: { row: BrandMatrixRow }) {
     <td
       ref={cellRef}
       className="sentiment-cell"
-      onMouseEnter={() => setOpen(true)}
+      onMouseEnter={() => hasValue && setOpen(true)}
       onMouseLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
+      onFocus={() => hasValue && setOpen(true)}
       onBlur={() => setOpen(false)}
     >
-      <span className={`sentiment-value ${row.sentiment >= 70 ? "good" : "neutral"}`}>
+      <span
+        className={`sentiment-value ${
+          !hasValue
+            ? "muted"
+            : row.sentiment! >= 70
+              ? "good"
+              : "neutral"
+        }`}
+      >
         {display}
       </span>
       {open && bd ? (
@@ -43,11 +56,19 @@ export function SentimentCell({ row }: { row: BrandMatrixRow }) {
               <b>{row.name}</b>
             </div>
             <span className="sentiment-pill">
-              {display} ({bd.label === "Positive" ? "正面" : bd.label === "Negative" ? "负面" : bd.label === "Neutral" ? "中性" : "混合"})
+              {display} (
+              {bd.label === "Positive"
+                ? "正面"
+                : bd.label === "Negative"
+                  ? "负面"
+                  : bd.label === "Neutral"
+                    ? "中性"
+                    : "混合"}
+              )
             </span>
           </div>
           <div className="sentiment-popover-body">
-            <h4>情感分布 <em>估算</em></h4>
+            <h4>情感分布</h4>
             <div className="sentiment-stack">
               <i style={{ width: `${bd.negativePct}%`, background: "#ef4444" }} />
               <i style={{ width: `${bd.neutralPct}%`, background: "#f59e0b" }} />

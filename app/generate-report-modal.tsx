@@ -6,6 +6,7 @@ import {
   exportBrandReportPdf,
   type ReportType,
 } from "@/lib/report/export-brand-report";
+import { registerReportExport, uploadReportPdfFile } from "@/lib/reports/client";
 
 type Phase = "configure" | "generating" | "ready" | "error";
 
@@ -19,6 +20,12 @@ type Props = {
   tagLabel: string;
   marketLabel: string;
   brandName: string;
+  workspaceId?: string | null;
+  rangeFrom?: string;
+  rangeTo?: string;
+  rangeDays?: number;
+  onRegistered?: () => void;
+  initialReportType?: ReportType;
 };
 
 export default function GenerateReportModal({
@@ -31,9 +38,17 @@ export default function GenerateReportModal({
   tagLabel,
   marketLabel,
   brandName,
+  workspaceId,
+  rangeFrom,
+  rangeTo,
+  rangeDays,
+  onRegistered,
+  initialReportType,
 }: Props) {
   const [phase, setPhase] = useState<Phase>("configure");
-  const [reportType, setReportType] = useState<ReportType>("document");
+  const [reportType, setReportType] = useState<ReportType>(
+    () => initialReportType ?? "document",
+  );
   const [logoDataUrl, setLogoDataUrl] = useState<string | null>(null);
   const [logoName, setLogoName] = useState("");
   const [progress, setProgress] = useState(0);
@@ -49,11 +64,12 @@ export default function GenerateReportModal({
     setPhase("configure");
     setProgress(0);
     setError("");
+    if (initialReportType) setReportType(initialReportType);
     setBlobUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-  }, [open]);
+  }, [open, initialReportType]);
 
   useEffect(() => {
     return () => {
@@ -119,6 +135,39 @@ export default function GenerateReportModal({
       setFilename(result.filename);
       setPhase("ready");
       setProgress(100);
+      if (workspaceId) {
+        void (async () => {
+          const row = await registerReportExport({
+            workspaceId,
+            title: `${brandName || "品牌"}-品牌报告`,
+            kind: "overview",
+            filters: {
+              rangeLabel,
+              from: rangeFrom,
+              to: rangeTo,
+              days: rangeDays,
+              engineLabel,
+              tagLabel,
+              marketLabel,
+              reportType,
+              visibility: overview.visibility ?? null,
+              coverage:
+                overview.ranking.find((r) => r.isPrimary)?.coverage ??
+                overview.domainCoverage ??
+                null,
+              brandName,
+            },
+            filePath: null,
+          });
+          if (!row) return;
+          const uploaded = await uploadReportPdfFile(
+            workspaceId,
+            row.id,
+            result.blob,
+          );
+          if (uploaded) onRegistered?.();
+        })();
+      }
     } catch (e) {
       if (cancelled.current) return;
       setPhase("error");

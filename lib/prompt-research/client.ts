@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/auth/fetch";
 import {
   authHeaders,
   getOrCreateClientUserId,
@@ -14,7 +15,7 @@ function userHeaders(extra?: HeadersInit): HeadersInit {
 export async function startPromptResearch(
   input: PromptResearchInput,
 ): Promise<PromptResearchJobView> {
-  const res = await fetch("/api/prompt-research", {
+  const res = await apiFetch("/api/prompt-research", {
     method: "POST",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(input),
@@ -34,7 +35,7 @@ export async function fetchLatestPromptResearch(
   const qs = workspaceId
     ? `?workspaceId=${encodeURIComponent(workspaceId)}`
     : "";
-  const res = await fetch(`/api/prompt-research${qs}`, {
+  const res = await apiFetch(`/api/prompt-research${qs}`, {
     headers: userHeaders(),
     cache: "no-store",
   });
@@ -52,7 +53,7 @@ export async function appendMonitoringPrompts(payload: {
   market?: string;
   intentByText?: Record<string, string>;
 }): Promise<{ added: number; skipped: number; ids: string[] }> {
-  const res = await fetch("/api/prompts", {
+  const res = await apiFetch("/api/prompts", {
     method: "POST",
     headers: userHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(payload),

@@ -1,5 +1,5 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/identity";
+import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
 import { getDraftSession, upsertDraft } from "@/lib/onboarding/service";
 import { isValidOnboardingState } from "@/lib/onboarding/validate";
 
