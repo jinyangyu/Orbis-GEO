@@ -245,7 +245,7 @@ for arg in "$@"; do
   --stop          只停掉旧进程（PM2 / vinext / 端口），不启动
 
 首次部署前请编辑 .env.local 里的 DATABASE_URL。
-服务器日常发版：bash start.sh --deploy
+服务器日常发版请用：bash deploy.sh
 EOF
       exit 0
       ;;

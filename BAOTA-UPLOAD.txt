@@ -16,14 +16,14 @@ cp -n .env.example .env.local
 bash start.sh
 ```
 
-以后发版（会拉 GitHub 最新代码再启动；没有 git 就下 zip，并保留 .env.local）：
+以后发版（拉 GitHub 最新代码再启动；没有 git 就下 zip，并保留 .env.local）：
 
 ```bash
 cd /www/wwwroot/orbis/seo-geo-platform
-bash start.sh --deploy
+bash deploy.sh
 ```
 
-只启动、不拉代码：`bash start.sh --build`  
+只重启当前目录、不拉代码：`bash start.sh`  
 只停服务：`bash start.sh --stop`
 
 宝塔网站反代：`http://127.0.0.1:3000`  
