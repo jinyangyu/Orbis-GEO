@@ -1,223 +1,129 @@
-# Orbis SEO / GEO Platform
+# Orbis｜AI 搜索可见度与 GEO 平台
 
-vinext dashboard for AI search visibility (GEO), with MySQL persistence for
-onboarding and workspace configuration.
+vinext 仪表盘：监测品牌在 ChatGPT / DeepSeek / 豆包等答卷中的提及、引用与覆盖率。配置与监测事实存在 MySQL。
 
-## Prerequisites
+仓库：<https://github.com/jinyangyu/Orbis-GEO>
+
+## 环境要求
 
 - Node.js `>=22.13.0`
-- MySQL 8.x (local)
+- MySQL 8.x（本机或与应用同机）
 
-## Quick Start
+## 本地启动
 
 ```bash
 npm install
 cp .env.example .env.local
-# create database + user, then:
+# 按这台机器改 DATABASE_URL，主机必须是 127.0.0.1，不要写 localhost
 npm run db:push
 npm run dev
 ```
 
-This starter does not use `wrangler.jsonc`.
+`localhost` 和 `127.0.0.1` 在 MySQL 里是不同账号。应用会把 `localhost` 规范成 `127.0.0.1`。
 
-## Local MySQL (onboarding / workspace)
-
-Onboarding drafts and completed workspace config are stored in MySQL via Drizzle.
-
-1. Create a database (example):
-
-```sql
-CREATE DATABASE orbis CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'orbis'@'%' IDENTIFIED BY 'orbis';
-GRANT ALL PRIVILEGES ON orbis.* TO 'orbis'@'%';
-FLUSH PRIVILEGES;
-```
-
-2. Set `DATABASE_URL` (and session secrets) in `.env.local`:
+每台机器单独一份 `.env.local`，不要提交、不要打进 zip。示例账号 `orbis:orbis` 只适用于本机自己建过该用户的开发库。
 
 ```bash
-DATABASE_URL=mysql://orbis:orbis@127.0.0.1:3306/orbis
-SESSION_SECRET=dev-local-change-me-to-a-long-random-string
+DATABASE_URL=mysql://用户:密码@127.0.0.1:3306/库名
+SESSION_SECRET=至少32位随机串
 ORBIS_COOKIE_SECURE=0
 ORBIS_DEV_OPEN_TENANT=1
 ```
 
-3. Apply schema:
+需要演示门禁时，同时设置 `ORBIS_GATE_USER` 与 `ORBIS_GATE_PASSWORD`。
 
-```bash
-npm run db:push
-# or apply SQL under drizzle/ (e.g. 0005_notifications.sql, 0006_workspace_members.sql)
+建库示例（本机开发）：
+
+```sql
+CREATE DATABASE orbis CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'orbis'@'127.0.0.1' IDENTIFIED BY 'orbis';
+GRANT ALL PRIVILEGES ON orbis.* TO 'orbis'@'127.0.0.1';
+FLUSH PRIVILEGES;
 ```
 
-Identity (P0): the server issues an **HttpOnly signed cookie** `orbis_session`
-(HMAC with `SESSION_SECRET`). API access requires this cookie (`credentials: "include"`).
-A `localStorage` UUID may still be sent as `x-orbis-user-id` only during
-`POST /api/auth/bootstrap` to propose a stable user id — it is **not** trusted for
-authorization. Workspace data requires a row in `workspace_members`.
-
-For local imported monitoring data (e.g. inspection import), keep
-`ORBIS_DEV_OPEN_TENANT=1` so the app can `POST /api/workspaces/claim` and attach
-those workspaces to your session. **Do not enable that flag in production**
-(`NODE_ENV=production` ignores it).
-
-### Production checklist
-
-- [ ] `NODE_ENV=production` (DEV claim is always off)
-- [ ] `ORBIS_DEV_OPEN_TENANT`, `ORBIS_DEMO_DETECTED`, `ORBIS_HEURISTIC_SENTIMENT` unset
-- [ ] `SESSION_SECRET` ≥32 random characters
-- [ ] `ORBIS_COOKIE_SECURE` not forced to `0` (HTTPS cookies)
-- [ ] `REPORTS_STORAGE` set (`local` disk or `s3`) and writable
-- [ ] Worker security headers enabled (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`)
-- [ ] App is noindex (`app/robots.ts` + layout `robots: { index: false }`)
-
-SIWC email is reserved on
-`users.email` but not required yet.
-
-API surface:
-
-- `GET/PUT /api/onboarding` — draft session
-- `POST /api/onboarding/complete` — commit users / workspace / brand / prompts / competitors
-- `POST /api/onboarding/reset` — clear draft (sidebar「重新体验首次激活」)
-- `GET /api/workspace` — current workspace payload for the dashboard shell
-
-`localStorage` (`orbis_onboarding_v1`) remains an offline draft fallback; MySQL is
-the source of truth when available.
-
-### Schema (MySQL `orbis`)
-
-详见设计文档：[docs/storage-design.md](docs/storage-design.md)。
-
-**Account / onboarding:** `users`, `workspaces`, `onboarding_sessions`
-
-**Config:** `workspace_brands` (primary + competitor), `prompts`, `engines`
-
-**Facts (GEO monitoring):** `answer_observations`, `answer_brand_mentions`,
-`citation_events`, `citation_competitors`, `citation_stars`
-
-**Daily rollups (L3):** `obs_metrics_daily`, `brand_metrics_daily`,
-`prompt_metrics_daily`, `domain_metrics_daily`, `url_metrics_daily`
-
-**Optional:** `report_exports`
-
-Seed engines:
-
-```bash
-mysql -h127.0.0.1 -P3306 -uorbis -porbis orbis < scripts/seed-engines.sql
-```
-
-Rebuild daily metrics after importing facts:
+导入监测数据后重建三级日表：
 
 ```bash
 npm run db:rebuild-daily
 ```
 
-## Health & CI
+## 服务器部署（宝塔 / ECS）
 
-- `GET /api/health` — readiness (DB ping); `GET /api/health?ready=0` — liveness only
-- `POST /api/client-error` — browser ErrorBoundary reports
-- GitHub Actions: `.github/workflows/ci.yml` runs lint + unit tests
-- Optional live smoke: `ORBIS_E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e`
-
-Dashboard UI is split under `app/dashboard/` (`shell`, `overview`, `prompts`, …); `app/page.tsx` is the thin entry.
-
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings (D1 unused; MySQL is primary)
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` defines onboarding / workspace tables
-- `examples/d1/` contains a legacy D1 example surface
-- `drizzle.config.ts` targets MySQL via `DATABASE_URL`
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
-```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Content generation (seo-generator-agent)
-
-The「内容生成」page lists articles from the Go agent via a vinext BFF.
-
-1. Start `seo-generator-agent` HTTP API (default `http://127.0.0.1:8080`).
-2. Copy `.env.example` to `.env.local` and set:
+详见 [BAOTA-UPLOAD.txt](BAOTA-UPLOAD.txt)。摘要：
 
 ```bash
-SEO_AGENT_BASE_URL=http://127.0.0.1:8080
+cd /www/wwwroot/orbis/seo-geo-platform
+cp -n .env.example .env.local
+# 编辑 DATABASE_URL 为这台宝塔「数据库」面板里的用户/密码
+bash start.sh
 ```
 
-3. Run `npm run dev`, open the dashboard, and open **内容 → 内容生成**.
+`start.sh` 会：停掉旧的 PM2 `orbis` 以及占用 3000 端口的 vinext、验库、必要时 `npm install` / `build`、再用 PM2 拉起。
 
-Browser calls `GET /api/content/articles`, which proxies to
-`GET {SEO_AGENT_BASE_URL}/api/orbis/articles`. Preview links open the agent's
-`/preview/:articleId` in a new tab when `preview_ready` is true.
+```bash
+bash start.sh --build          # 代码更新后强制重建
+bash start.sh --stop           # 只停，不启动
+bash start.sh --skip-install   # 依赖已装过
+```
 
-## Useful Commands
+反代 `http://127.0.0.1:3000`。自检：`curl -s http://127.0.0.1:3000/api/health`  
+日志应出现 `[orbis] db ok user=...`。
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run test:unit`: unit tests (query helpers, slug, onboarding validation)
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-- `npm run db:push`: push schema to local MySQL
-- `npm run db:migrate`: apply generated SQL migrations
-- `npm run db:seed-engines`: seed AI engine dictionary (idempotent)
-- `npm run db:import-inspection`: import inspection `response.json` dumps into L2 fact tables
-  (default path `~/Downloads/inspection_2026-08-05_all_raw_responses_v2`; pass another root as argv)
-- `npm run db:enrich-monitoring`: discover competitors, backfill mentions / citation categories
+PM2 读 `.env.local`；vinext Worker 读启动时写出的 `.dev.vars`。不要把数据库密码写进仓库里的 `ecosystem.config.cjs`。
 
-## Learn More
+演示机可保留 `ORBIS_DEV_OPEN_TENANT=1` 且不要设 `NODE_ENV=production`，以便 `POST /api/workspaces/claim` 挂上已导入的监测工作区。正式环境不要开该开关。
 
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle MySQL Guide](https://orm.drizzle.team/docs/get-started/mysql-new)
+## 数据分层与仪表盘查询
+
+表结构见 [docs/storage-design.md](docs/storage-design.md)。
+
+| 层 | 表 | 用途 |
+|---|---|---|
+| L0/L1 | users / workspaces / workspace_brands / prompts / engines | 账号与配置 |
+| L2 | answer_observations / answer_brand_mentions / citation_events / … | 答卷事实 |
+| L3 | `*_metrics_daily` 五张日表 | Overview / Prompts / Citations 默认聚合 |
+
+默认「全部引擎」、不筛市场时，KPI / 趋势 / 工作区列表走 L3。引擎列表与域名覆盖改为按日期索引的短查询，不再全表 JOIN 百万行提及。筛单个引擎时仍回退 L2（日表没有引擎维度）。
+
+## 身份
+
+- 登录态：HttpOnly 签名 Cookie `orbis_session`（`SESSION_SECRET`）
+- `x-orbis-user-id` 仅用于 `POST /api/auth/bootstrap` 提议 userId，不能单独授权
+- 工作区访问以 `workspace_members` 为准
+- 可选门禁：`ORBIS_GATE_USER` + `ORBIS_GATE_PASSWORD`
+
+## 常用命令
+
+| 命令 | 说明 |
+|------|------|
+| `npm run dev` | 本地开发 |
+| `npm run build` / `npm start` | 生产构建与启动（start 前会验库） |
+| `npm run db:check` | 只验 `DATABASE_URL` 并写 `.dev.vars` |
+| `npm run db:push` / `db:migrate` | 同步 schema |
+| `npm run db:seed-engines` | 引擎字典 |
+| `npm run db:import-inspection` | 导入 inspection 答卷到 L2 |
+| `npm run db:rebuild-daily` | 从 L2 重建 L3 |
+| `npm run test:unit` | 单元测试 |
+| `bash start.sh` | 服务器一键停旧进程并启动 |
+
+## 健康检查与 CI
+
+- `GET /api/health` — 就绪（含 DB）；`?ready=0` 仅存活
+- GitHub Actions：`.github/workflows/ci.yml`（lint + unit）
+- 可选：`ORBIS_E2E_BASE_URL=http://127.0.0.1:3000 npm run test:e2e`
+
+## 生产核对
+
+- [ ] 每台机器自己的 `.env.local`，主机 `127.0.0.1`
+- [ ] `SESSION_SECRET` ≥ 32 位
+- [ ] 正式环境关闭 `ORBIS_DEV_OPEN_TENANT`
+- [ ] HTTPS 下不要把 `ORBIS_COOKIE_SECURE` 强制为 `0`
+- [ ] `REPORTS_STORAGE` 可写（`local` 或 `s3`）
+
+## 内容生成（可选）
+
+「内容生成」经 BFF 调 Go agent。`.env.local` 中设置 `SEO_AGENT_BASE_URL=http://127.0.0.1:8080`。
+
+## vinext / ChatGPT 宿主
+
+本项目基于 vinext starter：不使用 `wrangler.jsonc`；`.openai/hosting.json` 声明可选 D1/R2（主存储是 MySQL）。OpenAI 工作区可读取 `oai-authenticated-user-email` 等头。SIWC 辅助见 `app/chatgpt-auth.ts`。SIWC 只解决身份，工作区成员仍以 `workspace_members` 为准。

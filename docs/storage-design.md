@@ -282,13 +282,10 @@ Onboarding 完成时：本品 → primary，竞品列表 → competitor（同 do
 
 ## 6. 本地环境
 
-```bash
-# .env.local
-DATABASE_URL=mysql://orbis:orbis@127.0.0.1:3306/orbis
+# .env.local（每台机器单独一份，不要提交）
+DATABASE_URL=mysql://用户:密码@127.0.0.1:3306/库名
+# 主机必须是 127.0.0.1，不要写 localhost
 
-# 当前开发机使用 Scrape 项目便携 MySQL：
-# /Users/a58/Projects/Scrape/.mysql-local/  (127.0.0.1:3306)
-```
 
 Schema 源文件：[`db/schema.ts`](../db/schema.ts)。  
 变更后优先改 Drizzle schema，再用 SQL/`drizzle-kit push` 同步（注意 push 在非 TTY 下对「删表/改名」可能交互失败，复杂变更可手写 SQL）。
@@ -314,6 +311,7 @@ Schema 源文件：[`db/schema.ts`](../db/schema.ts)。
 2. Citations CSV 导入 / 对账  
 3. 用 Prompts 宽 CSV 做聚合对账；补竞品 mention  
 4. ~~查询变慢再加 `brand_metrics_daily` / `url_metrics_daily`~~（已落地 L3 五表）  
+   默认 Overview 已走 L3；引擎拆分与域名覆盖改为窗口内短查询，不再全表 JOIN `answer_brand_mentions`。筛单个引擎仍回退 L2。  
 5. 超长正文迁 R2（当前 `answer_text` MEDIUMTEXT）  
 6. SIWC：用 email 绑定 `users`，替换本地 UUID  
 7. `workspaces.slug`：品牌变更时是否同步更新（当前首次写入后保留）
