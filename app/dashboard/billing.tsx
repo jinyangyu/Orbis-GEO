@@ -1,17 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import {
   extraPromptAllowed,
+  formatQuota,
   formatUsd,
   invoiceId,
-  loadBillingState,
+  isTrialEnded,
   maxExtraPrompts,
+  nextSubscriptionId,
+  periodEndForInterval,
   PLANS,
   planPromptLimit,
   planRank,
   priceFor,
-  saveBillingState,
+  quotaIncluded,
+  trialBannerCopy,
   type BillingInvoice,
   type BillingState,
   type BillingView,
@@ -21,33 +25,79 @@ import { ENGINE_ADDONS, PROMPT_PACK, engineAddonPrice } from "@/lib/billing/pric
 import { helpArticleHref } from "@/lib/help/catalog";
 import {
   PricingAddons,
-  PricingIncludes,
+  PricingAgencyStrip,
+  PricingAnnualSwitch,
   PricingPlanGrid,
-  PricingToggle,
 } from "../pricing/board";
 
+export type BillingUsage = {
+  prompts: number;
+  geoAudits: number;
+  api: number;
+  mcp: number;
+  agentEvents: number;
+};
+
+export function TrialBanner({
+  state,
+  onStartSubscription,
+}: {
+  state: BillingState;
+  onStartSubscription: () => void;
+}) {
+  if (state.plan !== "trial") return null;
+  const copy = trialBannerCopy(state);
+  return (
+    <div className="trial-banner" role="status">
+      <div className="trial-banner-inner">
+        <p>
+          <b>{copy.lead}</b> {copy.rest}
+        </p>
+        <button type="button" onClick={onStartSubscription}>
+          开始订阅
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Billing({
-  promptUsed,
+  usage,
   workspaceCount,
   notify,
+  manageOpen,
+  onManageOpenChange,
+  state,
+  onStateChange,
+  plansFocusTick = 0,
 }: {
-  promptUsed: number;
+  usage: BillingUsage;
   workspaceCount: number;
   notify: (s: string) => void;
+  manageOpen: boolean;
+  onManageOpenChange: (open: boolean) => void;
+  state: BillingState;
+  onStateChange: (next: BillingState, persist?: boolean) => void;
+  plansFocusTick?: number;
 }) {
-  const [state, setState] = useState<BillingState>(() => loadBillingState());
   const [view, setView] = useState<BillingView>("overview");
   const [interval, setInterval] = useState(state.interval);
-  const [manageOpen, setManageOpen] = useState(false);
+  const [localFocusTick, setLocalFocusTick] = useState(0);
+  const [seenFocus, setSeenFocus] = useState(0);
+  const focusTick = plansFocusTick + localFocusTick;
 
-  const persist = (next: BillingState) => {
-    setState(next);
-    saveBillingState(next);
+  if (focusTick > seenFocus) {
+    setSeenFocus(focusTick);
+    if (view !== "overview") setView("overview");
+  }
+
+  const persist = (next: BillingState, write = true) => {
+    onStateChange(next, write);
   };
 
-  const limit = planPromptLimit(state);
-  const usedPct = Math.min(100, Math.round((promptUsed / Math.max(limit, 1)) * 100));
   const current = PLANS[state.plan];
+  const trialEnded = isTrialEnded(state);
+  const copy = trialBannerCopy(state);
 
   const addInvoice = (label: string, amount: number): BillingInvoice => ({
     id: invoiceId(),
@@ -56,14 +106,21 @@ export function Billing({
     label,
   });
 
+  const goOverview = () => setView("overview");
+
+  const goToPlans = () => {
+    onManageOpenChange(false);
+    setLocalFocusTick((n) => n + 1);
+  };
+
+  useLayoutEffect(() => {
+    if (!focusTick) return;
+    document.getElementById("billing-plans")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focusTick]);
+
   const buyPlan = (plan: PlanId) => {
-    if (plan === "trial") {
-      persist({ ...state, plan: "trial", extraPrompts: 0, cancelAtPeriodEnd: false });
-      notify("已回到试用（演示）");
-      setView("overview");
-      return;
-    }
-    if (planRank(plan) < planRank(state.plan) && promptUsed > PLANS[plan].prompts + (extraPromptAllowed(plan) ? state.extraPrompts : 0)) {
+    if (plan === "trial") return;
+    if (planRank(plan) < planRank(state.plan) && usage.prompts > PLANS[plan].prompts + (extraPromptAllowed(plan) ? state.extraPrompts : 0)) {
       notify(`请先将监测 Prompt 降至 ${PLANS[plan].prompts} 条以内再降级`);
       return;
     }
@@ -79,20 +136,14 @@ export function Billing({
       interval,
       extraPrompts: extra,
       cancelAtPeriodEnd: false,
+      periodEnd: periodEndForInterval(interval),
+      subscriptionId: state.subscriptionId || nextSubscriptionId(),
       invoices: [addInvoice(`${PLANS[plan].name}（${interval === "year" ? "年付" : "月付"}）`, amount), ...state.invoices].slice(0, 12),
     };
     persist(next);
     notify(planRank(plan) >= planRank(state.plan) ? `已升级到 ${PLANS[plan].name}` : `已申请降级到 ${PLANS[plan].name}（演示：立即切换）`);
     setView("overview");
   };
-
-  const tabs: Array<{ id: BillingView; label: string }> = [
-    { id: "overview", label: "概览" },
-    { id: "plans", label: "套餐" },
-    { id: "addons", label: "加购" },
-    { id: "invoices", label: "发票" },
-    { id: "company", label: "账单信息" },
-  ];
 
   const monthlyEstimate = useMemo(() => {
     let n = priceFor(state.plan, state.interval);
@@ -106,83 +157,105 @@ export function Billing({
     return Math.round(n);
   }, [state]);
 
+  const openView = (next: BillingView) => {
+    onManageOpenChange(false);
+    setView(next);
+  };
+
   return (
     <>
-      <section className="report-hero">
-        <div>
-          <span className="eyebrow">BILLING · ORBIS</span>
-          <h2>账单与套餐</h2>
-          <p>
-            按监测 Prompt 计费，席位不限。演示环境不会真实扣款，升级、发票与公司抬头都会保存在本机。
-          </p>
-        </div>
-        <button type="button" onClick={() => setManageOpen(true)}>
-          管理订阅
-        </button>
-      </section>
-
-      <div className="billing-tabs">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={view === tab.id ? "active" : ""}
-            onClick={() => setView(tab.id)}
-          >
-            {tab.label}
+      {view !== "overview" ? (
+        <div className="billing-subhead">
+          <button type="button" className="billing-back" onClick={goOverview}>
+            ← 返回账单概览
           </button>
-        ))}
-      </div>
+        </div>
+      ) : null}
 
       {view === "overview" && (
-        <div className="billing-overview">
-          <div className="panel">
+        <div className="billing-stack billing-page">
+          <section className="panel">
             <div className="panel-head">
               <div>
-                <h3>当前套餐 · {current.name}</h3>
+                <h3>套餐详情</h3>
+                <p>当前档位、续费日与账期。</p>
+              </div>
+            </div>
+            {state.plan === "trial" ? (
+              <div className="billing-alert">
                 <p>
-                  {state.interval === "year" ? "年付" : "月付"}
-                  {state.cancelAtPeriodEnd ? " · 将在账期结束后取消" : ""}
-                  {" · "}账期至 {state.periodEnd}
+                  <b>{copy.lead}</b> {copy.rest}
+                </p>
+                <button type="button" className="primary-button" onClick={goToPlans}>
+                  查看套餐
+                </button>
+              </div>
+            ) : state.cancelAtPeriodEnd ? (
+              <div className="billing-alert">
+                <p>已设置在 {state.periodEnd} 账期结束时取消。此前仍可使用当前套餐。</p>
+              </div>
+            ) : null}
+            <div className="billing-stats">
+              <div className="billing-stat">
+                <span>当前套餐</span>
+                <b>{current.name}</b>
+              </div>
+              <div className="billing-stat">
+                <span>订阅</span>
+                <b>{state.subscriptionId || "—"}</b>
+              </div>
+              <div className="billing-stat">
+                <span>续费日</span>
+                <b>{state.plan === "trial" ? (trialEnded ? "试用已结束" : state.trialEndsAt) : state.periodEnd}</b>
+              </div>
+              <div className="billing-stat">
+                <span>账期</span>
+                <b>{state.plan === "trial" ? "—" : state.interval === "year" ? "年付" : "月付"}</b>
+              </div>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h3>套餐用量</h3>
+                <p>
+                  估算 {formatUsd(monthlyEstimate)}/{state.interval === "year" ? "月（年付折算）" : "月"}
+                  {state.extraPrompts ? ` · 含加购 Prompt ${state.extraPrompts}` : ""}
                 </p>
               </div>
-              <a className="text-button" href="/pricing" target="_blank" rel="noreferrer">
-                完整定价页
-              </a>
-            </div>
-            <div className="usage-meter">
-              <div>
-                <b>监测 Prompt</b>
-                <span>
-                  {promptUsed} / {limit}
-                </span>
-              </div>
-              <i>
-                <em style={{ width: `${usedPct}%` }} />
-              </i>
-              <small>工作区 {workspaceCount} · 估算 {formatUsd(monthlyEstimate)}/{state.interval === "year" ? "月（年付折算）" : "月"}</small>
-            </div>
-            <div className="help-cta-row" style={{ padding: "0 18px 16px" }}>
-              <button type="button" className="primary-button" onClick={() => setView("plans")}>
-                更改套餐
-              </button>
-              <button type="button" className="secondary-button" onClick={() => setView("addons")}>
+              <button type="button" className="text-button" onClick={() => setView("addons")}>
                 加购 Prompt / 引擎
               </button>
             </div>
-          </div>
-        </div>
-      )}
+            <div className="billing-usage">
+              <UsageRow label="监测 Prompt" used={usage.prompts} limit={planPromptLimit(state)} />
+              <UsageRow label="GEO Audit" used={usage.geoAudits} limit={current.geoAudits} />
+              <UsageRow label="API" used={usage.api} limit={current.api} />
+              <UsageRow label="MCP" used={usage.mcp} limit={current.mcp} />
+              <UsageRow label="Agent 事件" used={usage.agentEvents} limit={current.agentEvents} />
+            </div>
+            <p className="billing-workspaces">
+              你有 {workspaceCount} 个工作区 · 当前套餐{current.workspaces === "不限" ? "不限工作区" : `含 ${current.workspaces}工作区`}
+            </p>
+          </section>
 
-      {view === "plans" && (
-        <div className="price-board">
-          <PricingToggle interval={interval} onChange={setInterval} />
-          <PricingPlanGrid
-            interval={interval}
-            currentPlan={state.plan}
-            onBuy={(id) => buyPlan(id)}
-          />
-          <PricingIncludes />
+          <section className="panel billing-scale" id="billing-plans">
+            <div className="billing-section-head">
+              <div>
+                <h3>套餐</h3>
+                <p>在这里管理套餐。</p>
+              </div>
+              <PricingAnnualSwitch interval={interval} onChange={setInterval} />
+            </div>
+            <PricingPlanGrid
+              interval={interval}
+              currentPlan={state.plan}
+              onBuy={(id) => buyPlan(id)}
+              variant="plans"
+            />
+            <PricingAgencyStrip canApply={state.plan === "standard" || state.plan === "premium"} />
+          </section>
         </div>
       )}
 
@@ -274,10 +347,7 @@ export function Billing({
                   </small>
                 </div>
                 <span className="generated">{inv.amount}</span>
-                <button
-                  type="button"
-                  onClick={() => notify(`已下载 ${inv.id}（演示）`)}
-                >
+                <button type="button" onClick={() => notify(`已下载 ${inv.id}（演示）`)}>
                   下载
                 </button>
               </div>
@@ -298,7 +368,7 @@ export function Billing({
           <div className="panel-head">
             <div>
               <h3>账单信息</h3>
-              <p>用于发票抬头与通知邮箱。正式环境对应 Stripe Billing Information。</p>
+              <p>用于发票抬头与通知邮箱。正式环境对应 Stripe 账单信息。</p>
             </div>
           </div>
           <div className="billing-fields">
@@ -306,7 +376,7 @@ export function Billing({
               公司名称
               <input
                 value={state.companyName}
-                onChange={(e) => setState({ ...state, companyName: e.target.value })}
+                onChange={(e) => persist({ ...state, companyName: e.target.value }, false)}
               />
             </label>
             <label>
@@ -314,14 +384,14 @@ export function Billing({
               <input
                 type="email"
                 value={state.billingEmail}
-                onChange={(e) => setState({ ...state, billingEmail: e.target.value })}
+                onChange={(e) => persist({ ...state, billingEmail: e.target.value }, false)}
               />
             </label>
             <label>
               税号 / VAT ID
               <input
                 value={state.vatId}
-                onChange={(e) => setState({ ...state, vatId: e.target.value })}
+                onChange={(e) => persist({ ...state, vatId: e.target.value }, false)}
               />
             </label>
           </div>
@@ -342,54 +412,26 @@ export function Billing({
             type="button"
             className="drawer-backdrop"
             aria-label="关闭"
-            onClick={() => setManageOpen(false)}
+            onClick={() => onManageOpenChange(false)}
           />
           <aside className="drawer billing-manage">
             <div className="drawer-head">
-              <b>管理订阅</b>
-              <button type="button" onClick={() => setManageOpen(false)} aria-label="关闭">
+              <b>管理套餐</b>
+              <button type="button" onClick={() => onManageOpenChange(false)} aria-label="关闭">
                 ×
               </button>
             </div>
-            <p className="help-lead">对应 Otterly 的 Manage Plan：升级、账单信息、发票与取消。</p>
-            <button
-              type="button"
-              className="choice-like"
-              onClick={() => {
-                setManageOpen(false);
-                setView("plans");
-              }}
-            >
+            <p className="help-lead">升级、加购、账单信息、发票与取消。正式环境对应支付门户。</p>
+            <button type="button" className="choice-like" onClick={goToPlans}>
               升级 / 降级套餐
             </button>
-            <button
-              type="button"
-              className="choice-like"
-              onClick={() => {
-                setManageOpen(false);
-                setView("addons");
-              }}
-            >
+            <button type="button" className="choice-like" onClick={() => openView("addons")}>
               管理额外 Prompt
             </button>
-            <button
-              type="button"
-              className="choice-like"
-              onClick={() => {
-                setManageOpen(false);
-                setView("company");
-              }}
-            >
+            <button type="button" className="choice-like" onClick={() => openView("company")}>
               管理账单信息
             </button>
-            <button
-              type="button"
-              className="choice-like"
-              onClick={() => {
-                setManageOpen(false);
-                setView("invoices");
-              }}
-            >
+            <button type="button" className="choice-like" onClick={() => openView("invoices")}>
               查看发票
             </button>
             <button
@@ -402,7 +444,7 @@ export function Billing({
                 }
                 if (!window.confirm("确定取消订阅？当前账期结束前仍可使用。")) return;
                 persist({ ...state, cancelAtPeriodEnd: true });
-                setManageOpen(false);
+                onManageOpenChange(false);
                 notify("已设置在账期结束时取消");
               }}
             >
@@ -412,5 +454,40 @@ export function Billing({
         </div>
       ) : null}
     </>
+  );
+}
+
+function UsageRow({
+  label,
+  used,
+  limit,
+}: {
+  label: string;
+  used: number;
+  limit: number | null;
+}) {
+  if (!quotaIncluded(limit)) {
+    return (
+      <div className="usage-meter is-empty">
+        <div>
+          <b>{label}</b>
+          <span>未包含</span>
+        </div>
+      </div>
+    );
+  }
+  const pct = Math.min(100, Math.round((used / Math.max(limit, 1)) * 100));
+  return (
+    <div className="usage-meter">
+      <div>
+        <b>{label}</b>
+        <span>
+          {formatQuota(used)} / {formatQuota(limit)}
+        </span>
+      </div>
+      <i>
+        <em style={{ width: `${pct}%` }} />
+      </i>
+    </div>
   );
 }

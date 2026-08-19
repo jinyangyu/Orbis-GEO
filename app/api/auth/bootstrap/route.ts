@@ -6,6 +6,7 @@ import {
   readSession,
   SessionRequiredError,
 } from "@/lib/auth/session";
+import { assertGate, GateRequiredError } from "@/lib/auth/gate";
 import { ensureUserRow } from "@/lib/auth/users";
 import { UserIdRequiredError } from "@/lib/auth/http";
 import {
@@ -15,6 +16,9 @@ import {
 } from "@/lib/http/rate-limit";
 
 function errorResponse(error: unknown) {
+  if (error instanceof GateRequiredError) {
+    return Response.json({ error: "需要登录" }, { status: 401 });
+  }
   if (
     error instanceof SessionRequiredError ||
     error instanceof UserIdRequiredError
@@ -32,6 +36,7 @@ function errorResponse(error: unknown) {
 /** Issue or refresh signed session cookie; header UUID only when no cookie yet. */
 export async function POST(request: Request) {
   try {
+    assertGate(request);
     if (
       !allowRateLimit(`bootstrap:${clientIp(request)}`, {
         windowMs: 60_000,

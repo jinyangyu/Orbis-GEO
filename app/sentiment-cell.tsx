@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BrandLogo } from "./dashboard/brand-logo";
 import type { BrandMatrixRow } from "@/lib/metrics/types";
 
 export function SentimentCell({ row }: { row: BrandMatrixRow }) {
@@ -52,7 +53,11 @@ export function SentimentCell({ row }: { row: BrandMatrixRow }) {
         >
           <div className="sentiment-popover-head">
             <div className="sentiment-popover-brand">
-              <i style={{ background: row.color }}>{row.name.slice(0, 1)}</i>
+              <BrandLogo
+                className="sentiment-brand-logo"
+                domain={row.domain}
+                name={row.name}
+              />
               <b>{row.name}</b>
             </div>
             <span className="sentiment-pill">

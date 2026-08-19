@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/auth/fetch";
 import type { CitationsMetrics, CitedUrlRow } from "@/lib/metrics/types";
+import { BrandLogo } from "./brand-logo";
 import { Donut } from "./ui";
+import { t } from "@/lib/i18n";
 
 function UrlDeltaList({
   rows,
@@ -118,12 +120,12 @@ export function Citations({
   };
 
   return (
-    <>
+    <div className="citations-page">
       <div className="wl-grid">
         <article className="panel">
           <div className="panel-head">
             <div>
-              <h3>Top Winners</h3>
+              <h3>{t("citations.topWinners")}</h3>
               <p>相对上一周期引用上升的来源</p>
             </div>
           </div>
@@ -136,7 +138,7 @@ export function Citations({
         <article className="panel">
           <div className="panel-head">
             <div>
-              <h3>Top Losers</h3>
+              <h3>{t("citations.topLosers")}</h3>
               <p>相对上一周期引用下降的来源</p>
             </div>
           </div>
@@ -224,7 +226,7 @@ export function Citations({
             <h3>全部引用 URL</h3>
             <p>按引用次数排序 · 点击星标收藏</p>
           </div>
-          <label className="star-filter">
+          <label className={`star-filter${starredOnly ? " is-on" : ""}`}>
             <input
               type="checkbox"
               checked={starredOnly}
@@ -239,7 +241,7 @@ export function Citations({
               <tr>
                 <th />
                 <th>URL</th>
-                <th>Cited</th>
+                <th>{t("citations.cited")}</th>
                 <th>品牌提及</th>
                 <th>域名</th>
                 <th>类型</th>
@@ -273,7 +275,7 @@ export function Citations({
                         r.brandMentioned === "yes" ? "mention-yes" : "mention-no"
                       }
                     >
-                      {r.brandMentioned === "yes" ? "Yes" : "No"}
+                      {r.brandMentioned === "yes" ? t("citations.yes") : t("citations.no")}
                     </span>
                   </td>
                   <td>{r.domain}</td>
@@ -287,9 +289,12 @@ export function Citations({
                           key={c.brandId}
                           className="comp-pill"
                           title={c.name}
-                          style={{ background: c.color }}
                         >
-                          {c.mark || c.name.slice(0, 1)}
+                          <BrandLogo
+                            className="comp-pill-logo"
+                            domain={c.domain}
+                            name={c.name}
+                          />
                         </span>
                       ))}
                     </div>
@@ -307,10 +312,10 @@ export function Citations({
           </table>
         </div>
       </div>
-      <div className="panel table-panel" style={{ marginTop: 14 }}>
+      <div className="panel table-panel">
         <div className="panel-head">
           <div>
-            <h3>按官网引用的 Top Prompts</h3>
+            <h3>{t("overview.topPromptsDomain")}</h3>
           </div>
           <button className="text-button" onClick={onOpenPrompts}>
             查看 Prompts →
@@ -339,6 +344,6 @@ export function Citations({
           </table>
         </div>
       </div>
-    </>
+    </div>
   );
 }

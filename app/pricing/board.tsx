@@ -14,6 +14,7 @@ import {
   type PublicPlanId,
 } from "@/lib/billing/pricing";
 import { getHelpCategoryBySlug, helpArticleHref, helpCategoryHref } from "@/lib/help/catalog";
+import { t } from "@/lib/i18n";
 
 function PriceCheck() {
   return (
@@ -57,46 +58,138 @@ export function PricingToggle({
   );
 }
 
+export function PricingAnnualSwitch({
+  interval,
+  onChange,
+}: {
+  interval: BillingInterval;
+  onChange: (value: BillingInterval) => void;
+}) {
+  const annual = interval === "year";
+  return (
+    <div className="billing-annual-switch">
+      <span>年付（省 15%）</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={annual}
+        className={annual ? "is-on" : ""}
+        onClick={() => onChange(annual ? "month" : "year")}
+      >
+        <i />
+      </button>
+    </div>
+  );
+}
+
+export type PlanGridVariant = "marketing" | "scale" | "plans";
+
 export function PricingPlanGrid({
   interval,
   currentPlan,
   onBuy,
+  variant = "marketing",
 }: {
   interval: BillingInterval;
   currentPlan?: PlanId;
   onBuy?: (id: Exclude<PublicPlanId, "enterprise">) => void;
+  variant?: PlanGridVariant;
 }) {
+  const plans =
+    variant === "marketing" ? PUBLIC_PLANS : PUBLIC_PLANS.filter((plan) => plan.id !== "enterprise");
   return (
-    <div className="price-plans">
-      {PUBLIC_PLANS.map((plan) => (
+    <div className={variant === "marketing" ? "price-plans" : "price-plans is-account"}>
+      {plans.map((plan) => (
         <PlanCard
           key={plan.id}
           plan={plan}
           interval={interval}
           current={plan.id === currentPlan}
+          currentPlan={currentPlan}
           onBuy={onBuy}
+          variant={variant}
         />
       ))}
     </div>
   );
 }
 
+function accountCtaLabel(plan: PublicPlan, current: boolean, currentPlan?: PlanId): string {
+  if (current) return "当前套餐";
+  if (!currentPlan || currentPlan === "trial") return "升级";
+  const ranks: Record<string, number> = { trial: 0, lite: 1, standard: 2, premium: 3, enterprise: 4 };
+  return (ranks[plan.id] ?? 0) < (ranks[currentPlan] ?? 0) ? "降级" : "升级";
+}
+
 function PlanCard({
   plan,
   interval,
   current,
+  currentPlan,
   onBuy,
+  variant,
 }: {
   plan: PublicPlan;
   interval: BillingInterval;
   current: boolean;
+  currentPlan?: PlanId;
   onBuy?: (id: Exclude<PublicPlanId, "enterprise">) => void;
+  variant: PlanGridVariant;
 }) {
   const price = publicPlanPrice(plan, interval);
-  const cta = current ? "当前套餐" : plan.cta;
+  const cta =
+    variant === "marketing" ? (current ? "当前套餐" : plan.cta) : accountCtaLabel(plan, current, currentPlan);
+  const cardClass = [
+    "price-card",
+    plan.popular ? "is-popular" : "",
+    current && variant !== "marketing" ? "is-current" : "",
+    variant === "scale" ? "is-scale" : "",
+    variant === "plans" ? "is-split" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  if (variant === "scale") {
+    return (
+      <article className={cardClass}>
+        <div className="price-card-top">
+          <h3>{plan.name}</h3>
+          <p className="price-amount">
+            {price}
+            <small>/月</small>
+          </p>
+        </div>
+        <BulletList items={plan.scaleHighlights ?? plan.bullets.slice(0, 2)} />
+        <PlanCta plan={plan} current={current} label={cta} onBuy={onBuy} solid={false} />
+      </article>
+    );
+  }
+
+  if (variant === "plans") {
+    return (
+      <article className={cardClass}>
+        <div className="price-card-top">
+          <h3>{plan.name}</h3>
+          <p className="price-amount">
+            {price}
+            <small>/月</small>
+          </p>
+        </div>
+        <BulletList
+          className="is-above"
+          items={plan.accountAbove ?? plan.bullets}
+          enginesOn="监测引擎"
+          addonsOn="可加购引擎"
+        />
+        <PlanCta plan={plan} current={current} label={cta} onBuy={onBuy} solid />
+        <BulletList items={plan.accountBelow ?? plan.includes.slice(0, 5)} />
+      </article>
+    );
+  }
+
   return (
-    <article className={plan.popular ? "price-card is-popular" : "price-card"}>
-      {plan.popular ? <p className="price-popular">Most Popular</p> : null}
+    <article className={cardClass}>
+      {plan.popular ? <p className="price-popular">{t("pricing.mostPopular")}</p> : null}
       <h3>{plan.name}</h3>
       <p className="price-amount">
         {price}
@@ -109,33 +202,56 @@ function PlanCard({
       </p>
       <PlanCta plan={plan} current={current} label={cta} onBuy={onBuy} />
       <hr />
-      <ul className="price-bullets">
-        {plan.bullets.map((item, i) => (
-          <li key={item}>
-            {i === 0 && plan.id !== "enterprise" ? (
-              <>
-                <span className="price-bullet-row">
-                  <PriceCheck />
-                  {item}
-                </span>
-                <span className="price-engine-row" aria-label="核心引擎">
-                  {CORE_ENGINES.map((engine) => (
-                    <em key={engine.id} title={engine.label}>
-                      {engine.short}
-                    </em>
-                  ))}
-                </span>
-              </>
-            ) : (
-              <span className="price-bullet-row">
-                <PriceCheck />
-                {item}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+      <BulletList items={plan.bullets} enginesOnFirst={plan.id !== "enterprise"} />
     </article>
+  );
+}
+
+function EngineRow() {
+  return (
+    <span className="price-engine-row" aria-label="核心引擎">
+      {CORE_ENGINES.map((engine) => (
+        <em key={engine.id} title={engine.label}>
+          {engine.short}
+        </em>
+      ))}
+    </span>
+  );
+}
+
+function BulletList({
+  items,
+  enginesOnFirst,
+  enginesOn,
+  addonsOn,
+  className,
+}: {
+  items: string[];
+  enginesOnFirst?: boolean;
+  enginesOn?: string;
+  addonsOn?: string;
+  className?: string;
+}) {
+  return (
+    <ul className={className ? `price-bullets ${className}` : "price-bullets"}>
+      {items.map((item, i) => (
+        <li key={`${item}-${i}`}>
+          <span className="price-bullet-row">
+            <PriceCheck />
+            {item}
+          </span>
+          {enginesOnFirst && i === 0 ? <EngineRow /> : null}
+          {enginesOn && item === enginesOn ? <EngineRow /> : null}
+          {addonsOn && item === addonsOn ? (
+            <span className="price-engine-row" aria-label="可加购引擎">
+              <em title="Google AI Mode">AI Mode</em>
+              <em title="Google Gemini">Gemini</em>
+              <em title="Claude">Claude</em>
+            </span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -144,28 +260,31 @@ function PlanCta({
   current,
   label,
   onBuy,
+  solid,
 }: {
   plan: PublicPlan;
   current: boolean;
   label: string;
   onBuy?: (id: Exclude<PublicPlanId, "enterprise">) => void;
+  solid?: boolean;
 }) {
+  const className = solid ? "price-btn is-solid is-block" : "price-btn";
   if (plan.id === "enterprise") {
     return (
-      <a className="price-btn" href={helpArticleHref("contact-support")}>
+      <a className={className} href={helpArticleHref("contact-support")}>
         {label}
       </a>
     );
   }
   if (onBuy) {
     return (
-      <button type="button" className="price-btn" disabled={current} onClick={() => onBuy(plan.id)}>
+      <button type="button" className={className} disabled={current} onClick={() => onBuy(plan.id)}>
         {label}
       </button>
     );
   }
   return (
-    <a className="price-btn" href="/" target="_blank" rel="noreferrer">
+    <a className={className} href="/" target="_blank" rel="noreferrer">
       {label}
     </a>
   );
@@ -198,20 +317,20 @@ export function PricingAddons() {
   return (
     <section className="price-addons">
       <header className="price-section-head">
-        <h2>Add-Ons</h2>
+        <h2>{t("pricing.addons")}</h2>
         <p>
           可叠加到现有套餐。价格为美元、不含税。可单独或组合购买。
         </p>
       </header>
       <AddonTable
-        title="Available Add-ons"
+        title={t("pricing.availableAddons")}
         rows={[
           {
-            label: "+100 extra search prompts（月付）",
+            label: "+100 条监测 Prompt（月付）",
             values: cols.map((col) => formatMoney(PROMPT_PACK.month[col])),
           },
           {
-            label: "+100 extra search prompts（年付）",
+            label: "+100 条监测 Prompt（年付）",
             values: cols.map((col) => formatMoney(PROMPT_PACK.year[col])),
           },
         ]}
@@ -221,7 +340,7 @@ export function PricingAddons() {
         条 Prompt，超出需升级到专业版。
       </p>
       <AddonTable
-        title="Available AI search engines"
+        title={t("pricing.availableEngines")}
         rows={ENGINE_ADDONS.flatMap((engine) => [
           {
             label: `${engine.label}（月付）`,
@@ -296,10 +415,31 @@ export function PricingAgency() {
   );
 }
 
+export function PricingAgencyStrip({ canApply }: { canApply: boolean }) {
+  const category = getHelpCategoryBySlug("agencies-enterprises");
+  return (
+    <section className="billing-agency-strip">
+      <div>
+        <h3>代理商合作计划</h3>
+        <p>服务多个客户时，可先订阅标准版或专业版，再申请专属权益。</p>
+      </div>
+      {canApply ? (
+        <a className="secondary-button" href={category ? helpCategoryHref(category) : "/help"}>
+          申请成为代理商
+        </a>
+      ) : (
+        <button type="button" className="secondary-button" disabled>
+          申请成为代理商
+        </button>
+      )}
+    </section>
+  );
+}
+
 export function PricingFaq() {
   return (
     <section className="price-faq">
-      <h2>FAQs</h2>
+      <h2>{t("pricing.faqs")}</h2>
       <p>关于价格与订阅管理的常见问题。</p>
       <div className="price-faq-list">
         {PRICING_FAQS.map((item) => (

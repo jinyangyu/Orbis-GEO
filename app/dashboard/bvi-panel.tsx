@@ -6,23 +6,9 @@ import type { BviMetrics } from "@/lib/metrics/types";
 import { PanelTitle } from "./ui";
 
 function formatBviDate(raw: string): string {
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(raw).slice(0, 10));
   if (!m) return raw || "—";
-  return `${Number(m[3])} ${months[Number(m[2]) - 1]} ${m[1]}`;
+  return `${Number(m[3])} ${t(`month.${Number(m[2]) - 1}`)} ${m[1]}`;
 }
 
 export function BrandVisibilityIndexPanel({
@@ -97,7 +83,7 @@ export function BrandVisibilityIndexPanel({
               step={1}
               value={Math.min(idx, last)}
               disabled={frames.length < 2}
-              aria-label="Brand Visibility Index time-lapse"
+              aria-label={t("bvi.timelapseAria")}
               onChange={(e) => {
                 setPlaying(false);
                 setIdx(Number(e.target.value));
@@ -120,13 +106,13 @@ export function BrandVisibilityIndexPanel({
             }}
           >
             <em aria-hidden>{playing ? "❚❚" : "▶"}</em>
-            {playing ? "Pause" : "Play time-lapse"}
+            {playing ? t("bvi.pause") : t("bvi.play")}
           </button>
         </div>
       </div>
 
       <div className="bvi-body">
-        <div className="bvi-chart" aria-label="Brand Visibility Index scatter">
+        <div className="bvi-chart" aria-label={t("bvi.scatterAria")}>
           <div className="bvi-y-axis" aria-hidden>
             <span>100</span>
             <span>75</span>
@@ -151,25 +137,25 @@ export function BrandVisibilityIndexPanel({
                 maxWidth: `calc(${bvi.coverageMid}% - 16px)`,
               }}
             >
-              Niche
+              {t("bvi.q.niche")}
             </span>
             <span
               className="bvi-q leaders"
               style={{ right: 12, top: 12 }}
             >
-              Leaders
+              {t("bvi.q.leaders")}
             </span>
             <span
               className="bvi-q low-perf"
               style={{ left: 12, bottom: 36 }}
             >
-              Low Performance
+              {t("bvi.q.lowPerf")}
             </span>
             <span
               className="bvi-q low-conv"
               style={{ right: 12, bottom: 36 }}
             >
-              Low Conversion
+              {t("bvi.q.lowConv")}
             </span>
             {brands.map((b) => {
               const color = colorByBrand.get(b.brandId) || "#3F3D89";
@@ -189,7 +175,7 @@ export function BrandVisibilityIndexPanel({
             })}
             <div className="bvi-x-axis" aria-hidden>
               <span>0</span>
-              <span>Brand Coverage %</span>
+              <span>{t("bvi.axisCoverage")}</span>
               <span>100</span>
             </div>
           </div>
@@ -199,10 +185,10 @@ export function BrandVisibilityIndexPanel({
           <table className="bvi-table">
             <thead>
               <tr>
-                <th>Brand</th>
+                <th>{t("bvi.brand")}</th>
                 <th>
                   <button type="button" onClick={() => toggleSort("coverage")}>
-                    Brand Coverage
+                    {t("bvi.coverage")}
                     <em>{sortKey === "coverage" ? (sortDir === "desc" ? "↓" : "↑") : "↕"}</em>
                   </button>
                 </th>

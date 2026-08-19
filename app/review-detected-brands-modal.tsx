@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { BrandLogo } from "./dashboard/brand-logo";
 import {
   acceptDetected,
   dismissDetected,
@@ -87,7 +88,13 @@ export default function ReviewDetectedBrandsModal({
           {!loading &&
             items.map((b) => (
               <div className="detected-row" key={b.id}>
-                <i style={{ background: b.color || "#5b68ef" }}>{b.mark || b.name.slice(0, 1)}</i>
+                <i>
+                  <BrandLogo
+                    className="detected-brand-logo"
+                    domain={b.domain}
+                    name={b.name}
+                  />
+                </i>
                 <div>
                   <b>{b.name}</b>
                   <span>{b.domain}</span>

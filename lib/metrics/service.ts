@@ -11,8 +11,7 @@ import {
   formatDeltaPct,
   formatDeltaPp,
   l3BrandMentionAggs,
-  l3BviDaily,
-  l3CoverageTrend,
+  l3CoverageTrendAndBvi,
   l3DomainCitationAggs,
   l3HasData,
   l3PromptAggs,
@@ -265,15 +264,18 @@ export async function listMonitoringWorkspaces(
       w.report_title AS report_title,
       pb.name AS brand_name,
       pb.domain AS brand_domain,
-      COUNT(o.id) AS observation_count
+      d.observation_count AS observation_count
     FROM workspaces w
     INNER JOIN workspace_members m
       ON m.workspace_id = w.id AND m.user_id = ${userId}
-    INNER JOIN answer_observations o ON o.workspace_id = w.id
+    INNER JOIN (
+      SELECT workspace_id, SUM(obs_count) AS observation_count
+      FROM obs_metrics_daily
+      GROUP BY workspace_id
+    ) d ON d.workspace_id = w.id
     LEFT JOIN workspace_brands pb
       ON pb.workspace_id = w.id AND pb.role = 'primary'
-    GROUP BY w.id, w.name, w.slug, w.report_title, pb.name, pb.domain
-    ORDER BY observation_count DESC
+    ORDER BY d.observation_count DESC
   `);
 
   return rowsOf(result)
@@ -326,6 +328,114 @@ function engineSql(engineCode?: string) {
     : sql``;
 }
 
+function engineJoinIfFiltered(engineCode?: string) {
+  return engineCode && engineCode !== "all"
+    ? sql`INNER JOIN engines e ON e.id = o.engine_id`
+    : sql``;
+}
+
+/** Distinct observations that cited any of `domains` in range. Starts from domain index. */
+async function citedObservationCount(
+  db: AppDb,
+  workspaceId: string,
+  domains: string[],
+  range: MetricsRange,
+  engineCode?: string,
+): Promise<number> {
+  if (domains.length === 0) return 0;
+  const result = await db.execute(sql`
+    SELECT COUNT(DISTINCT ce.observation_id) AS c
+    FROM citation_events ce
+    INNER JOIN answer_observations o ON o.id = ce.observation_id
+    ${engineJoinIfFiltered(engineCode)}
+    WHERE o.workspace_id = ${workspaceId}
+      AND o.observed_on BETWEEN ${range.from} AND ${range.to}
+      AND ce.domain IN (${sqlInStrings(domains)})
+    ${engineSql(engineCode)}
+  `);
+  return Number(rowsOf(result)[0]?.c ?? 0);
+}
+
+/** Per-engine obs + primary-brand mentions without scanning the full mention table. */
+async function enginePrimaryBreakdown(
+  db: AppDb,
+  workspaceId: string,
+  primaryBrandId: string,
+  range: MetricsRange,
+  engineCode?: string,
+): Promise<EngineMetricRow[]> {
+  const dateFilter = dateFilterSql(range);
+  const engineFilter = engineSql(engineCode);
+  const obsRows = await db.execute(sql`
+    SELECT
+      e.id AS engine_id,
+      e.code AS code,
+      e.name AS name,
+      e.sort_order AS sort_order,
+      COUNT(*) AS obs
+    FROM answer_observations o
+    INNER JOIN engines e ON e.id = o.engine_id
+    WHERE o.workspace_id = ${workspaceId}
+    ${dateFilter}
+    ${engineFilter}
+    GROUP BY e.id, e.code, e.name, e.sort_order
+  `);
+  const mentionRows = await db.execute(sql`
+    SELECT
+      o.engine_id AS engine_id,
+      COUNT(*) AS mentions
+    FROM answer_observations o
+    INNER JOIN answer_brand_mentions abm
+      ON abm.observation_id = o.id
+     AND abm.brand_id = ${primaryBrandId}
+     AND abm.mentioned = 1
+    ${engineJoinIfFiltered(engineCode)}
+    WHERE o.workspace_id = ${workspaceId}
+    ${dateFilter}
+    ${engineFilter}
+    GROUP BY o.engine_id
+  `);
+  const mentionsByEngine = new Map(
+    rowsOf(mentionRows).map((row) => [
+      String(row.engine_id),
+      Number(row.mentions ?? 0),
+    ]),
+  );
+  return rowsOf(obsRows)
+    .sort(
+      (a, b) =>
+        Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
+        (mentionsByEngine.get(String(b.engine_id)) ?? 0) -
+          (mentionsByEngine.get(String(a.engine_id)) ?? 0),
+    )
+    .map((row) => {
+      const obs = Number(row.obs ?? 0);
+      const mentions = mentionsByEngine.get(String(row.engine_id)) ?? 0;
+      const code = String(row.code);
+      return {
+        code,
+        name: String(row.name),
+        mark: engineMark(code, String(row.name)),
+        coverage: pct(mentions, obs, 0),
+        mentions,
+        change: NO_DELTA,
+        color: ENGINE_COLORS[code] ?? "#5b67f1",
+      };
+    });
+}
+
+function sqlInStrings(values: string[]) {
+  return sql.join(
+    values.map((v) => sql`${v}`),
+    sql`, `,
+  );
+}
+
+function canUseL3(engineCode: string | undefined, market?: string) {
+  const engineOn = Boolean(engineCode && engineCode !== "all");
+  return !engineOn && !(market ?? "").trim();
+}
+
 function marketSql(market?: string) {
   const m = market?.trim();
   return m ? sql`AND o.market = ${m}` : sql``;
@@ -337,8 +447,12 @@ async function brandMentionAggs(
   engineCode: string | undefined,
   range: MetricsRange,
   market?: string,
+  preferL3?: boolean,
 ): Promise<{ totalObs: number; byBrand: Map<string, MentionAgg> }> {
-  if (!engineCode && !market && (await l3HasData(db, workspaceId, range))) {
+  const useL3 =
+    preferL3 ??
+    (canUseL3(engineCode, market) && (await l3HasData(db, workspaceId, range)));
+  if (useL3 && canUseL3(engineCode, market)) {
     const l3 = await l3BrandMentionAggs(db, workspaceId, range);
     const byBrand = new Map<string, MentionAgg>();
     for (const [id, row] of l3.byBrand) {
@@ -407,8 +521,12 @@ async function domainCitationAggs(
   engineCode: string | undefined,
   range: MetricsRange,
   market?: string,
+  preferL3?: boolean,
 ) {
-  if (!engineCode && !market && (await l3HasData(db, workspaceId, range))) {
+  const useL3 =
+    preferL3 ??
+    (canUseL3(engineCode, market) && (await l3HasData(db, workspaceId, range)));
+  if (useL3 && canUseL3(engineCode, market)) {
     return l3DomainCitationAggs(db, workspaceId, range);
   }
 
@@ -472,6 +590,7 @@ function buildMatrix(
     return {
       brandId: b.id,
       name: b.name,
+      domain: b.domain || "",
       isPrimary: b.role === "primary",
       visibility: visibilityIndex(coverage, sovPercent, citeShare),
       coverage,
@@ -520,7 +639,9 @@ export async function getPromptsMetrics(
     filtered = filtered.filter((p) => p.market === marketFilter);
   }
 
-  const useL3 = !opts?.engine && (await l3HasData(db, workspaceId, range));
+  const useL3 =
+    canUseL3(opts?.engine, opts?.market) &&
+    (await l3HasData(db, workspaceId, range));
   let byPrompt: Map<
     string,
     {
@@ -764,12 +885,17 @@ export async function getOverviewMetrics(
   const engineFilter = engineSql(engineCode);
   const dateFilter = dateFilterSql(range);
 
+  const useL3 =
+    canUseL3(engineCode, opts?.market) &&
+    (await l3HasData(db, workspaceId, range));
+
   const { totalObs, byBrand } = await brandMentionAggs(
     db,
     workspaceId,
     engineCode,
     range,
     opts?.market,
+    useL3,
   );
   const primaryAgg = byBrand.get(primary.id) ?? {
     brandId: primary.id,
@@ -788,6 +914,7 @@ export async function getOverviewMetrics(
     engineCode,
     range,
     opts?.market,
+    useL3,
   );
   const primaryCites = domainRows
     .filter((d) => domainsMatch(d.domain, primary.domain))
@@ -796,68 +923,59 @@ export async function getOverviewMetrics(
   const citeShare = pct(primaryCites, totalCites);
   const visibility = visibilityIndex(coverage, sov, citeShare);
 
-  const obsWithPrimaryDomain = await db.execute(sql`
-    SELECT COUNT(DISTINCT o.id) AS c
-    FROM answer_observations o
-    INNER JOIN citation_events ce ON ce.observation_id = o.id
-    LEFT JOIN engines e ON e.id = o.engine_id
-    WHERE o.workspace_id = ${workspaceId}
-    ${dateFilter}
-    ${engineFilter}
-      AND (
-        ce.domain = ${primary.domain}
-        OR ce.domain LIKE ${`%.${rootDomain(primary.domain)}`}
-      )
-  `);
-  const domainCoverage = pct(
-    Number(rowsOf(obsWithPrimaryDomain)[0]?.c ?? 0),
-    totalObs,
+  const primaryDomains = [
+    ...new Set(
+      domainRows
+        .filter((d) => domainsMatch(d.domain, primary.domain))
+        .map((d) => d.domain)
+        .filter(Boolean),
+    ),
+  ];
+  if (primary.domain && !primaryDomains.includes(primary.domain)) {
+    primaryDomains.push(primary.domain);
+  }
+  const domainCovCount = await citedObservationCount(
+    db,
+    workspaceId,
+    primaryDomains,
+    range,
+    engineCode,
   );
+  const domainCoverage = pct(domainCovCount, totalObs);
 
-  const engineRows = await db.execute(sql`
-    SELECT
-      e.code AS code,
-      e.name AS name,
-      COUNT(o.id) AS obs,
-      SUM(CASE WHEN abm.mentioned = 1 THEN 1 ELSE 0 END) AS mentions
-    FROM answer_observations o
-    INNER JOIN engines e ON e.id = o.engine_id
-    LEFT JOIN answer_brand_mentions abm
-      ON abm.observation_id = o.id AND abm.brand_id = ${primary.id}
-    WHERE o.workspace_id = ${workspaceId}
-    ${dateFilter}
-    ${engineFilter}
-    GROUP BY e.id, e.code, e.name, e.sort_order
-    ORDER BY e.sort_order ASC, mentions DESC
-  `);
-
-  const enginesOut: EngineMetricRow[] = rowsOf(engineRows).map((row) => {
-    const obs = Number(row.obs ?? 0);
-    const mentions = Number(row.mentions ?? 0);
-    const cov = pct(mentions, obs, 0);
-    const code = String(row.code);
-    return {
-      code,
-      name: String(row.name),
-      mark: engineMark(code, String(row.name)),
-      coverage: cov,
-      mentions,
-      change: NO_DELTA,
-      color: ENGINE_COLORS[code] ?? "#5b67f1",
-    };
-  });
+  const enginesOut = await enginePrimaryBreakdown(
+    db,
+    workspaceId,
+    primary.id,
+    range,
+    engineCode,
+  );
 
   const ranking = buildMatrix(brands, totalObs, byBrand, domainRows);
 
   const prevRange = previousMetricsRange(range);
-  const prevAggs =
-    !engineCode && (await l3HasData(db, workspaceId, prevRange))
-      ? await brandMentionAggs(db, workspaceId, undefined, prevRange, opts?.market)
-      : null;
-  const prevDomains =
-    !engineCode && prevAggs
-      ? await domainCitationAggs(db, workspaceId, undefined, prevRange, opts?.market)
-      : null;
+  const prevL3 =
+    useL3 && (await l3HasData(db, workspaceId, prevRange));
+  const prevAggs = prevL3
+    ? await brandMentionAggs(
+        db,
+        workspaceId,
+        undefined,
+        prevRange,
+        opts?.market,
+        true,
+      )
+    : null;
+  const prevDomains = prevL3
+    ? await domainCitationAggs(
+        db,
+        workspaceId,
+        undefined,
+        prevRange,
+        opts?.market,
+        true,
+      )
+    : null;
   const prevPrimary = prevAggs?.byBrand.get(primary.id);
   const prevTotalMentions = prevAggs
     ? [...prevAggs.byBrand.values()].reduce((s, b) => s + b.mentionSum, 0)
@@ -916,7 +1034,7 @@ export async function getOverviewMetrics(
     coverage: number;
   }> = [];
 
-  if (!engineCode && (await l3HasData(db, workspaceId, range))) {
+  if (useL3) {
     const byPrompt = await l3PromptAggs(db, workspaceId, range);
     const promptRows = await db
       .select({ id: prompts.id, text: prompts.text })
@@ -1082,13 +1200,14 @@ export async function getOverviewMetrics(
     isPrimary: b.isPrimary,
   }));
 
-  if (!engineCode && (await l3HasData(db, workspaceId, range))) {
+  if (useL3) {
     const trendBrands = ranking;
-    const { obsByDate, mentByDateBrand } = await l3CoverageTrend(
+    const bviIds = bviBrands.map((b) => b.brandId);
+    const { obsByDate, mentByDateBrand, byDateBrand } = await l3CoverageTrendAndBvi(
       db,
       workspaceId,
       range,
-      trendBrands.map((b) => b.brandId),
+      [...new Set([...trendBrands.map((b) => b.brandId), ...bviIds])],
     );
     trend = [...obsByDate.entries()].map(([date, obs]) => ({
       date,
@@ -1098,15 +1217,11 @@ export async function getOverviewMetrics(
         coverage: pct(mentByDateBrand.get(`${date}|${b.brandId}`) ?? 0, obs, 0),
       })),
     }));
-
-    const { obsByDate: bviObs, byDateBrand } = await l3BviDaily(
-      db,
-      workspaceId,
-      range,
-      bviBrands.map((b) => b.brandId),
-    );
-    const frames = buildBviFrames(bviBrands, bviObs, byDateBrand);
-    bvi = { coverageMid: 50, likelihoodMid: 50, frames };
+    bvi = {
+      coverageMid: 50,
+      likelihoodMid: 50,
+      frames: buildBviFrames(bviBrands, obsByDate, byDateBrand),
+    };
   } else {
     const dateObs = await db.execute(sql`
       SELECT o.observed_on AS d, COUNT(*) AS obs
@@ -1173,7 +1288,7 @@ export async function getOverviewMetrics(
   }
 
   const urlRows =
-    !engineCode && (await l3HasData(db, workspaceId, range))
+    useL3
       ? (
           await l3TopUrls(db, workspaceId, range, 20)
         )
@@ -1250,7 +1365,7 @@ export async function getOverviewMetrics(
             ? NO_DELTA
             : formatDeltaPct(visibility, prevVisibility),
         tone: "mint",
-        hint: "0–100 综合指数：综合品牌覆盖率、Share of Voice 与官网引用份额。越高表示在 AI 答卷中越显眼。",
+        hint: "0–100 综合指数：综合品牌覆盖率、声量份额与官网引用份额。越高表示在 AI 答卷中越显眼。",
       },
       {
         label: "品牌覆盖率",
@@ -1263,7 +1378,7 @@ export async function getOverviewMetrics(
         hint: `本品至少被提及一次的答卷占比。当前 ${primaryAgg.mentionedObs}/${totalObs} 次回答中出现本品。`,
       },
       {
-        label: "Share of Voice",
+        label: "声量份额",
         value: `${sov}%`,
         delta: prevSov == null ? NO_DELTA : formatDeltaPp(sov, prevSov),
         tone: "violet",
@@ -1323,11 +1438,15 @@ export async function getCitationsMetrics(
   );
   const brandById = new Map(brands.map((b) => [b.id, b]));
 
+  const useL3 =
+    canUseL3(opts?.engine) && (await l3HasData(db, workspaceId, range));
   const domainRows = await domainCitationAggs(
     db,
     workspaceId,
     opts?.engine,
     range,
+    undefined,
+    useL3,
   );
   const totalCitations = domainRows.reduce((s, d) => s + d.citations, 0);
 
@@ -1371,8 +1490,6 @@ export async function getCitationsMetrics(
       level: d.citations >= 40 ? "高机会" : d.citations >= 15 ? "中机会" : "低机会",
     }));
 
-  const useL3 = !opts?.engine && (await l3HasData(db, workspaceId, range));
-
   const topUrlRows = useL3
     ? await l3TopUrls(db, workspaceId, range, 80)
     : rowsOf(
@@ -1405,7 +1522,7 @@ export async function getCitationsMetrics(
   const topUrls = topUrlRows.map((row) => row.url);
   const compsMap = new Map<
     string,
-    Array<{ brandId: string; name: string; mark: string; color: string }>
+    Array<{ brandId: string; name: string; domain: string; mark: string; color: string }>
   >();
   if (topUrls.length && !useL3) {
     const urlList = sql.join(
@@ -1417,6 +1534,7 @@ export async function getCitationsMetrics(
         ce.url AS url,
         wb.id AS brand_id,
         wb.name AS name,
+        wb.domain AS domain,
         wb.mark AS mark,
         wb.color AS color
       FROM citation_events ce
@@ -1438,6 +1556,7 @@ export async function getCitationsMetrics(
         list.push({
           brandId,
           name: String(row.name),
+          domain: String(row.domain || brand?.domain || ""),
           mark: String(row.mark || brand?.name.slice(0, 1) || "?"),
           color: String(row.color || brand?.color || "#9368ee"),
         });
@@ -1447,12 +1566,28 @@ export async function getCitationsMetrics(
   }
 
   const prevRange = previousMetricsRange(range);
-  const prevUrlMap =
-    useL3 && (await l3HasData(db, workspaceId, prevRange))
-      ? await l3UrlWindowMap(db, workspaceId, prevRange)
-      : null;
+  const prevL3 =
+    useL3 && (await l3HasData(db, workspaceId, prevRange));
+  const prevTopRows = prevL3
+    ? (await l3TopUrls(db, workspaceId, prevRange, 80)).map((row) => ({
+        url: row.url,
+        title: row.title,
+        domain: row.domain,
+        category: row.category,
+        cited: row.cited,
+      }))
+    : [];
+  const candidateUrlList = [
+    ...new Set([
+      ...topUrlRows.map((r) => r.url),
+      ...prevTopRows.map((r) => r.url),
+    ]),
+  ];
+  const prevUrlMap = prevL3
+    ? await l3UrlWindowMap(db, workspaceId, prevRange, candidateUrlList)
+    : null;
   const currUrlMap = useL3
-    ? await l3UrlWindowMap(db, workspaceId, range)
+    ? await l3UrlWindowMap(db, workspaceId, range, candidateUrlList)
     : new Map(topUrlRows.map((r) => [r.url, r.cited]));
 
   const urls: CitedUrlRow[] = topUrlRows.map((row) => {
@@ -1523,30 +1658,11 @@ export async function getCitationsMetrics(
   const metaByUrl = new Map(
     topUrlRows.map((row) => [row.url, row] as const),
   );
-  let prevTopRows: Array<{
-    url: string;
-    title: string;
-    domain: string;
-    category: string;
-    cited: number;
-  }> = [];
-  if (useL3 && prevUrlMap) {
-    prevTopRows = (await l3TopUrls(db, workspaceId, prevRange, 80)).map((row) => ({
-      url: row.url,
-      title: row.title,
-      domain: row.domain,
-      category: row.category,
-      cited: row.cited,
-    }));
-    for (const row of prevTopRows) {
-      if (!metaByUrl.has(row.url)) metaByUrl.set(row.url, { ...row, brandYes: 0 });
-    }
+  for (const row of prevTopRows) {
+    if (!metaByUrl.has(row.url)) metaByUrl.set(row.url, { ...row, brandYes: 0 });
   }
 
-  const candidateUrls = new Set<string>([
-    ...topUrlRows.map((r) => r.url),
-    ...prevTopRows.map((r) => r.url),
-  ]);
+  const candidateUrls = new Set(candidateUrlList);
   const moved = prevUrlMap
     ? [...candidateUrls]
         .map((url) => {
@@ -1596,8 +1712,8 @@ export async function getCitationsMetrics(
 
   // Domain growth vs previous window
   const prevDomainRows =
-    useL3 && prevUrlMap
-      ? await domainCitationAggs(db, workspaceId, undefined, prevRange)
+    prevL3
+      ? await domainCitationAggs(db, workspaceId, undefined, prevRange, undefined, true)
       : [];
   const prevDomainMap = new Map(prevDomainRows.map((d) => [d.domain, d.citations]));
   const domainsWithGrowth: CitationDomainRow[] = domainRows.slice(0, 40).map((row) => {

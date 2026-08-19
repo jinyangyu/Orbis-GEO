@@ -144,51 +144,13 @@ export async function l3PromptAggs(
   );
 }
 
-export async function l3CoverageTrend(
+/** Coverage trend + BVI from the same two L3 scans. */
+export async function l3CoverageTrendAndBvi(
   db: AppDb,
   workspaceId: string,
   range: MetricsRange,
   brandIds: string[],
 ) {
-  const obsRows = await db.execute(sql`
-    SELECT observed_on AS d, obs_count AS obs
-    FROM obs_metrics_daily
-    WHERE workspace_id = ${workspaceId}
-      AND observed_on BETWEEN ${range.from} AND ${range.to}
-    ORDER BY observed_on ASC
-  `);
-  const mentRows = await db.execute(sql`
-    SELECT observed_on AS d, brand_id AS brand_id, mentioned_obs AS ment
-    FROM brand_metrics_daily
-    WHERE workspace_id = ${workspaceId}
-      AND observed_on BETWEEN ${range.from} AND ${range.to}
-  `);
-  const obsByDate = new Map(
-    rowsOf(obsRows).map((row) => [
-      String(row.d).slice(0, 10),
-      Number(row.obs ?? 0),
-    ]),
-  );
-  const mentByDateBrand = new Map<string, number>();
-  for (const row of rowsOf(mentRows)) {
-    mentByDateBrand.set(
-      `${String(row.d).slice(0, 10)}|${row.brand_id}`,
-      Number(row.ment ?? 0),
-    );
-  }
-  return { obsByDate, mentByDateBrand, brandIds };
-}
-
-/** Daily BVI frames: coverage (X) + likelihood-to-buy from avg position (Y). */
-export async function l3BviDaily(
-  db: AppDb,
-  workspaceId: string,
-  range: MetricsRange,
-  brandIds: string[],
-): Promise<{
-  obsByDate: Map<string, number>;
-  byDateBrand: Map<string, { ment: number; avgPosition: number | null }>;
-}> {
   const obsRows = await db.execute(sql`
     SELECT observed_on AS d, obs_count AS obs
     FROM obs_metrics_daily
@@ -213,18 +175,57 @@ export async function l3BviDaily(
       Number(row.obs ?? 0),
     ]),
   );
+  const mentByDateBrand = new Map<string, number>();
   const byDateBrand = new Map<string, { ment: number; avgPosition: number | null }>();
+  const brandFilter = brandIds.length > 0 ? new Set(brandIds) : null;
   for (const row of rowsOf(brandRows)) {
     const brandId = String(row.brand_id);
-    if (brandIds.length && !brandIds.includes(brandId)) continue;
+    const date = String(row.d).slice(0, 10);
+    const ment = Number(row.ment ?? 0);
+    mentByDateBrand.set(`${date}|${brandId}`, ment);
+    if (brandFilter && !brandFilter.has(brandId)) continue;
     const positionN = Number(row.position_n ?? 0);
     const positionSum = Number(row.position_sum ?? 0);
-    byDateBrand.set(`${String(row.d).slice(0, 10)}|${brandId}`, {
-      ment: Number(row.ment ?? 0),
+    byDateBrand.set(`${date}|${brandId}`, {
+      ment,
       avgPosition:
         positionN > 0 ? Number((positionSum / positionN).toFixed(2)) : null,
     });
   }
+  return { obsByDate, mentByDateBrand, byDateBrand, brandIds };
+}
+
+export async function l3CoverageTrend(
+  db: AppDb,
+  workspaceId: string,
+  range: MetricsRange,
+  brandIds: string[],
+) {
+  const { obsByDate, mentByDateBrand } = await l3CoverageTrendAndBvi(
+    db,
+    workspaceId,
+    range,
+    brandIds,
+  );
+  return { obsByDate, mentByDateBrand, brandIds };
+}
+
+/** Daily BVI frames: coverage (X) + likelihood-to-buy from avg position (Y). */
+export async function l3BviDaily(
+  db: AppDb,
+  workspaceId: string,
+  range: MetricsRange,
+  brandIds: string[],
+): Promise<{
+  obsByDate: Map<string, number>;
+  byDateBrand: Map<string, { ment: number; avgPosition: number | null }>;
+}> {
+  const { obsByDate, byDateBrand } = await l3CoverageTrendAndBvi(
+    db,
+    workspaceId,
+    range,
+    brandIds,
+  );
   return { obsByDate, byDateBrand };
 }
 
@@ -263,12 +264,22 @@ export async function l3UrlWindowMap(
   db: AppDb,
   workspaceId: string,
   range: MetricsRange,
+  urls?: string[],
 ) {
+  if (urls && urls.length === 0) return new Map<string, number>();
+  const urlFilter =
+    urls && urls.length > 0
+      ? sql`AND url IN (${sql.join(
+          urls.map((u) => sql`${u}`),
+          sql`, `,
+        )})`
+      : sql``;
   const result = await db.execute(sql`
     SELECT url AS url, COALESCE(SUM(citations), 0) AS cited
     FROM url_metrics_daily
     WHERE workspace_id = ${workspaceId}
       AND observed_on BETWEEN ${range.from} AND ${range.to}
+      ${urlFilter}
     GROUP BY url
   `);
   return new Map(

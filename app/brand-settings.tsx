@@ -1,5 +1,7 @@
 "use client";
 
+import { t } from "@/lib/i18n";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchBrandSettings,
@@ -17,6 +19,7 @@ import {
   removeBrandCompetitor,
 } from "@/lib/brands/client";
 import type { BrandRowView } from "@/lib/brands/service";
+import { BrandLogo } from "./dashboard/brand-logo";
 import ReviewDetectedBrandsModal from "./review-detected-brands-modal";
 
 export type BrandSettingsTab =
@@ -176,7 +179,7 @@ function PromptTransferPane({
         </label>
         <input
           className="bs-xfer-search"
-          placeholder="Search"
+          placeholder={t("action.search")}
           value={filter.q}
           onChange={(e) => onFilter({ q: e.target.value, page: 1 })}
         />
@@ -818,8 +821,8 @@ export default function BrandSettings({
           <div className="bs-comp-list">
             {competitors.map((c) => (
               <div className="bs-comp-row" key={c.id}>
-                <i style={{ background: c.color }}>
-                  {c.mark || c.name.slice(0, 1)}
+                <i>
+                  <BrandLogo className="bs-comp-logo" domain={c.domain} name={c.name} />
                 </i>
                 {editingId === c.id ? (
                   <div className="bs-comp-edit">

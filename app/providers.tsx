@@ -2,9 +2,10 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
-import { bootstrapSession } from "@/lib/auth/client";
+import { bootstrapSession, resetBootstrapLatch } from "@/lib/auth/client";
 import { apiFetch } from "@/lib/auth/fetch";
 import { AppErrorBoundary } from "./error-boundary";
+import { LoginGate } from "./login-gate";
 
 function isPublicPath(pathname: string) {
   return (
@@ -13,6 +14,15 @@ function isPublicPath(pathname: string) {
     pathname === "/pricing" ||
     pathname.startsWith("/pricing/")
   );
+}
+
+async function fetchGateStatus(): Promise<{ required: boolean; ok: boolean }> {
+  const res = await fetch("/api/auth/gate/status", {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) return { required: false, ok: true };
+  return (await res.json()) as { required: boolean; ok: boolean };
 }
 
 async function ensureSessionAndMaybeClaim() {
@@ -37,11 +47,40 @@ async function ensureSessionAndMaybeClaim() {
 export function AppProviders({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/";
   const publicPage = isPublicPath(pathname);
+  const [gateChecked, setGateChecked] = useState(false);
+  const [gateRequired, setGateRequired] = useState(false);
+  const [gateOk, setGateOk] = useState(true);
   const [sessionReady, setSessionReady] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (publicPage || sessionReady) return;
+    if (publicPage) return;
+    let cancelled = false;
+    void fetchGateStatus()
+      .then((s) => {
+        if (cancelled) return;
+        setGateRequired(s.required);
+        setGateOk(s.ok);
+        setGateChecked(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setGateRequired(false);
+        setGateOk(true);
+        setGateChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [publicPage]);
+
+  useEffect(() => {
+    if (publicPage || !gateChecked) return;
+    if (gateRequired && !gateOk) {
+      setSessionReady(false);
+      return;
+    }
+    if (sessionReady) return;
     let cancelled = false;
     void ensureSessionAndMaybeClaim()
       .then(() => {
@@ -56,9 +95,24 @@ export function AppProviders({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [publicPage, sessionReady]);
+  }, [publicPage, gateChecked, gateRequired, gateOk, sessionReady]);
 
-  const showApp = publicPage || sessionReady;
+  if (!publicPage && gateChecked && gateRequired && !gateOk) {
+    return (
+      <AppErrorBoundary>
+        <LoginGate
+          onSuccess={() => {
+            resetBootstrapLatch();
+            setGateOk(true);
+            setSessionReady(false);
+            setError("");
+          }}
+        />
+      </AppErrorBoundary>
+    );
+  }
+
+  const showApp = publicPage || (gateChecked && sessionReady);
 
   return (
     <AppErrorBoundary>

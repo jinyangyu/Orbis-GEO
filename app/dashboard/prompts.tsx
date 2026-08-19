@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import PromptHoverText from "../prompt-hover-text";
 import { t } from "@/lib/i18n";
 import type { PromptMetricRow } from "@/lib/metrics/types";
@@ -48,12 +48,12 @@ export function Prompts({
   ];
 
   return (
-    <div className="panel table-panel">
+    <div className="panel table-panel prompts-panel">
       <div className="table-toolbar">
         <div className="search-box">
           <span>⌕</span>
           <input
-            placeholder="Search by prompt"
+            placeholder={t("filter.searchPrompt")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -168,7 +168,12 @@ export function Prompts({
                       {comps.slice(0, 4).map((name, i) => (
                         <i
                           key={`${row.promptId}-${name}`}
-                          style={{ background: COMP_COLORS[i % COMP_COLORS.length] }}
+                          style={
+                            {
+                              "--comp-color":
+                                COMP_COLORS[i % COMP_COLORS.length],
+                            } as CSSProperties
+                          }
                           title={name}
                         >
                           {name.slice(0, 1).toUpperCase()}

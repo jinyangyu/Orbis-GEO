@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { TrendPoint } from "@/lib/metrics/types";
+import { t } from "@/lib/i18n";
 import {
   TREND_PALETTE,
   coverageAxisMax,
@@ -15,7 +16,8 @@ export function trendSeries(trend: TrendPoint[]) {
     brandId: s.brandId,
     name: s.name,
     values: trend.map(
-      (t) => t.series.find((x) => x.brandId === s.brandId)?.coverage ?? 0,
+      (point) =>
+        point.series.find((x) => x.brandId === s.brandId)?.coverage ?? 0,
     ),
   }));
 }
@@ -112,7 +114,7 @@ export function TrendCoverageChart({
     <>
       <div className="chart-wrap">
         <div className="y-axis-block" aria-hidden>
-          <span className="y-axis-title">Brand Coverage %</span>
+          <span className="y-axis-title">{t("overview.coverageAxis")}</span>
           <div className="y-axis">
             {yTicks.map((v, i) => (
               <span key={`${v}-${i}`}>{v}%</span>
@@ -134,15 +136,17 @@ export function TrendCoverageChart({
             {activeSeries.map((s) => {
               const i = series.findIndex((x) => x.brandId === s.brandId);
               const color = colors[i] || TREND_PALETTE[0];
+              const isPrimary = i === 0;
               return (
                 <path
                   key={s.brandId}
                   d={seriesSmoothPath(s.values, maxY)}
                   fill="none"
                   stroke={color}
-                  strokeWidth={2.1}
+                  strokeWidth={isPrimary ? 1.95 : 1.65}
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  opacity={isPrimary ? 0.96 : 0.84}
                   vectorEffect="non-scaling-stroke"
                 />
               );

@@ -21,21 +21,17 @@ export async function GET(request: Request) {
   try {
     const userId = requireUserId(request);
     const url = new URL(request.url);
-    const workspaceId = await withDb((db) =>
-      resolveWorkspaceId(db, {
-        userId,
-        workspaceId: url.searchParams.get("workspaceId"),
-        slug: url.searchParams.get("slug"),
-      }),
-    );
-    if (!workspaceId) {
-      return Response.json({ error: "No monitoring workspace" }, { status: 404 });
-    }
     const q = url.searchParams.get("q") ?? undefined;
     const engine = url.searchParams.get("engine") ?? undefined;
     const market = url.searchParams.get("market") ?? undefined;
-    const data = await withDb((db) =>
-      getPromptsMetrics(db, workspaceId, {
+    const data = await withDb(async (db) => {
+      const workspaceId = await resolveWorkspaceId(db, {
+        userId,
+        workspaceId: url.searchParams.get("workspaceId"),
+        slug: url.searchParams.get("slug"),
+      });
+      if (!workspaceId) return { workspaceId: null, metrics: null };
+      const metrics = await getPromptsMetrics(db, workspaceId, {
         q,
         engine: engine || undefined,
         market: market || undefined,
@@ -43,9 +39,13 @@ export async function GET(request: Request) {
         to: url.searchParams.get("to") ?? undefined,
         days: intParam(url.searchParams.get("days")),
         limit: 200,
-      }),
-    );
-    return Response.json(data);
+      });
+      return { workspaceId, metrics };
+    });
+    if (!data.workspaceId) {
+      return Response.json({ error: "No monitoring workspace" }, { status: 404 });
+    }
+    return Response.json(data.metrics);
   } catch (error) {
     return errorResponse(error);
   }

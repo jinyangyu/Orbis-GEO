@@ -5,6 +5,7 @@ import PromptHoverText from "../prompt-hover-text";
 import { SentimentCell } from "../sentiment-cell";
 import { t } from "@/lib/i18n";
 import type { OverviewMetrics, PromptCountRow } from "@/lib/metrics/types";
+import { BrandLogo } from "./brand-logo";
 import { BrandVisibilityIndexPanel } from "./bvi-panel";
 import { TrendCoverageChart, trendSeries } from "./trend-chart";
 import { FilterEmptyStage } from "./filter-empty";
@@ -106,17 +107,231 @@ export function Overview({
     (s) => colorByBrand.get(s.brandId) || TREND_PALETTE[0],
   );
   const mePlusLabel =
-    mePlus === "all" ? "Me + all competitors" : "Me + Top 5 competitors";
+    mePlus === "all" ? t("overview.mePlusAll") : t("overview.mePlusTop5");
   const coreReady = Boolean(data) && !loadingCore;
   const mentionPrompts = topPromptRows;
   const filterEmpty = Boolean(data && !loadingCore && data.observationCount === 0);
 
   return (
     <FilterEmptyStage empty={filterEmpty}>
+      <div className="dashboard-grid overview-top overview-chart-row">
+        {!coreReady ? (
+          <ChartSkeleton title={t("overview.coverageTrend")} />
+        ) : (
+        <article className="panel trend-panel">
+          <div className="panel-head">
+            <PanelTitle
+              title={t("overview.coverageTrend")}
+              tip={t("overview.coverageTrendTip")}
+            />
+            <div className="me-plus" ref={mePlusRef}>
+              <button
+                type="button"
+                className={`me-plus-trigger${mePlusOpen ? " open" : ""}`}
+                aria-haspopup="listbox"
+                aria-expanded={mePlusOpen}
+                onClick={() => setMePlusOpen((v) => !v)}
+              >
+                <span>{mePlusLabel}</span>
+                <em aria-hidden>▾</em>
+              </button>
+              {mePlusOpen && (
+                <ul className="me-plus-menu" role="listbox">
+                  <li>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={mePlus === "all"}
+                      className={mePlus === "all" ? "active" : ""}
+                      onClick={() => {
+                        setMePlus("all");
+                        setMePlusOpen(false);
+                      }}
+                    >
+                      {t("overview.mePlusAll")}
+                    </button>
+                  </li>
+                  <li>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={mePlus === "top5"}
+                      className={mePlus === "top5" ? "active" : ""}
+                      onClick={() => {
+                        setMePlus("top5");
+                        setMePlusOpen(false);
+                      }}
+                    >
+                      {t("overview.mePlusTop5")}
+                    </button>
+                  </li>
+                </ul>
+              )}
+            </div>
+          </div>
+          <div className="trend-body">
+            <TrendCoverageChart trend={data!.trend} series={series} colors={colors} />
+          </div>
+        </article>
+        )}
+        <div className="kpi-column">
+          {!coreReady ? (
+            <>
+              <KpiPanelSkeleton title={t("overview.brandMentions")} />
+              <KpiPanelSkeleton title={t("overview.avgPosition")} />
+            </>
+          ) : (
+          <>
+          <article className="panel kpi-stack">
+            <KpiTitle
+              title={t("overview.brandMentions")}
+              tip={t("overview.brandMentionsTip")}
+            />
+            <div className="kpi-hero">{data!.primaryMentions}</div>
+            <div className="kpi-list">
+              {data!.competitorMentions.map((c) => {
+                const brand = data!.ranking.find((r) => r.name === c.name);
+                const color =
+                  (brand && colorByBrand.get(brand.brandId)) || c.color;
+                return (
+                  <div className="kpi-mini" key={c.name}>
+                    <span>
+                      <i className="kpi-dot" style={{ background: color }} />
+                      {c.name}
+                    </span>
+                    <b>{c.value}</b>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+          <article className="panel kpi-stack">
+            <KpiTitle
+              title={t("overview.avgPosition")}
+              tip={t("overview.avgPositionTip")}
+            />
+            <div className="kpi-hero">
+              {data!.avgPosition == null ? "—" : data!.avgPosition.toFixed(2)}
+            </div>
+            <div className="kpi-list">
+              {data!.competitorPositions.map((c) => {
+                const brand = data!.ranking.find((r) => r.name === c.name);
+                const color =
+                  (brand && colorByBrand.get(brand.brandId)) || c.color;
+                return (
+                  <div className="kpi-mini" key={c.name}>
+                    <span>
+                      <i className="kpi-dot" style={{ background: color }} />
+                      {c.name}
+                    </span>
+                    <b>{c.value.toFixed(2)}</b>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+          </>
+          )}
+        </div>
+      </div>
+
+      <div className="twin-tables">
+        {!coreReady ? (
+          <TablePanelSkeleton title="品牌排名" cols={4} />
+        ) : (
+        <article className="panel table-panel">
+          <div className="panel-head">
+            <PanelTitle
+              title="品牌排名"
+              tip="按提及次数、覆盖率与声量份额汇总的品牌竞争榜。情感取自答卷标注；无数据时显示「—」。"
+            />
+            <button type="button" className="secondary-button" onClick={onOpenDetected}>
+              更多已发现品牌
+            </button>
+          </div>
+          <div className="table-scroll">
+            <table className="compact-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>名称</th>
+                  <th>{t("sentiment.pending")}</th>
+                  <th>提及</th>
+                  <th>覆盖率</th>
+                  <th>SOV</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ranking.slice(0, 6).map((r, i) => (
+                  <tr key={r.brandId}>
+                    <td>{i + 1}</td>
+                    <td>
+                      <span className="comp-dot">
+                        <BrandLogo
+                          className="comp-dot-logo"
+                          domain={r.domain}
+                          name={r.name}
+                        />
+                      </span>
+                      <b>{r.name}</b>
+                      {r.isPrimary && <small className="you-label">你</small>}
+                    </td>
+                    <SentimentCell row={r} />
+                    <td>{r.mentions}</td>
+                    <td>{r.coverage}%</td>
+                    <td>{r.sovPercent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+        )}
+        {loadingPrompts ? (
+          <TablePanelSkeleton title={t("overview.topPromptsMentions")} cols={1} />
+        ) : (
+        <article className="panel table-panel">
+          <div className="panel-head">
+            <PanelTitle
+              title={t("overview.topPromptsMentions")}
+              tip={t("overview.topPromptsMentionsTip")}
+            />
+            <button className="text-button" onClick={onOpenPrompts}>
+              {t("action.viewFullReport")}
+            </button>
+          </div>
+          <div className="table-scroll">
+            <table className="compact-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Prompt</th>
+                  <th>提及</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mentionPrompts.map((p, i) => (
+                  <tr key={p.promptId}>
+                    <td>{i + 1}</td>
+                    <td>
+                      <b className="prompt-name">
+                        <PromptHoverText text={p.q} />
+                      </b>
+                    </td>
+                    <td>{p.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+        )}
+      </div>
+
       {!coreReady ? (
         <NoticeSkeleton />
       ) : (
-      <div className="notice">
+      <div className="notice notice-insight">
         <span>✦</span>
         <div>
           <b>{data!.notice.title}</b>
@@ -154,225 +369,8 @@ export function Overview({
       </div>
       )}
 
-      <div className="dashboard-grid overview-top overview-chart-row">
-        {!coreReady ? (
-          <ChartSkeleton title="Brand Coverage Over Time" />
-        ) : (
-        <article className="panel trend-panel">
-          <div className="panel-head">
-            <PanelTitle
-              title="Brand Coverage Over Time"
-              tip="选定时间范围内，本品与竞品在 AI 答卷中的日覆盖率走势。可用右上角 Me+ 切换 Top 5 / 全部竞品；点击图例可显隐曲线。"
-            />
-            <div className="me-plus" ref={mePlusRef}>
-              <button
-                type="button"
-                className={`me-plus-trigger${mePlusOpen ? " open" : ""}`}
-                aria-haspopup="listbox"
-                aria-expanded={mePlusOpen}
-                onClick={() => setMePlusOpen((v) => !v)}
-              >
-                <span>{mePlusLabel}</span>
-                <em aria-hidden>▾</em>
-              </button>
-              {mePlusOpen && (
-                <ul className="me-plus-menu" role="listbox">
-                  <li>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={mePlus === "all"}
-                      className={mePlus === "all" ? "active" : ""}
-                      onClick={() => {
-                        setMePlus("all");
-                        setMePlusOpen(false);
-                      }}
-                    >
-                      Me + all competitors
-                    </button>
-                  </li>
-                  <li>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={mePlus === "top5"}
-                      className={mePlus === "top5" ? "active" : ""}
-                      onClick={() => {
-                        setMePlus("top5");
-                        setMePlusOpen(false);
-                      }}
-                    >
-                      Me + Top 5 competitors
-                    </button>
-                  </li>
-                </ul>
-              )}
-            </div>
-          </div>
-          <div className="trend-body">
-            <TrendCoverageChart trend={data!.trend} series={series} colors={colors} />
-          </div>
-        </article>
-        )}
-        <div className="kpi-column">
-          {!coreReady ? (
-            <>
-              <KpiPanelSkeleton title="Your Brand Mentions" />
-              <KpiPanelSkeleton title="Your Average Brand Position" />
-            </>
-          ) : (
-          <>
-          <article className="panel kpi-stack">
-            <KpiTitle
-              title="Your Brand Mentions"
-              tip="监测周期内，本品在 AI 答卷中被提及的总次数。下方列出主要竞品的提及量，便于对比声量规模。"
-            />
-            <div className="kpi-hero">{data!.primaryMentions}</div>
-            <div className="kpi-list">
-              {data!.competitorMentions.map((c) => {
-                const brand = data!.ranking.find((r) => r.name === c.name);
-                const color =
-                  (brand && colorByBrand.get(brand.brandId)) || c.color;
-                return (
-                  <div className="kpi-mini" key={c.name}>
-                    <span>
-                      <i className="kpi-dot" style={{ background: color }} />
-                      {c.name}
-                    </span>
-                    <b>{c.value}</b>
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-          <article className="panel kpi-stack">
-            <KpiTitle
-              title="Your Average Brand Position"
-              tip="本品在答卷品牌列表中的平均出现位次。1 表示最常被首先提到；数值越小越好，反映推荐优先级而非仅是否出现。"
-            />
-            <div className="kpi-hero">
-              {data!.avgPosition == null ? "—" : data!.avgPosition.toFixed(2)}
-            </div>
-            <div className="kpi-list">
-              {data!.competitorPositions.map((c) => {
-                const brand = data!.ranking.find((r) => r.name === c.name);
-                const color =
-                  (brand && colorByBrand.get(brand.brandId)) || c.color;
-                return (
-                  <div className="kpi-mini" key={c.name}>
-                    <span>
-                      <i className="kpi-dot" style={{ background: color }} />
-                      {c.name}
-                    </span>
-                    <b>{c.value.toFixed(2)}</b>
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-          </>
-          )}
-        </div>
-      </div>
-
-      <div className="twin-tables">
-        {!coreReady ? (
-          <TablePanelSkeleton title="品牌排名" cols={4} />
-        ) : (
-        <article className="panel table-panel">
-          <div className="panel-head">
-            <PanelTitle
-              title="品牌排名"
-              tip="按提及次数、覆盖率与 Share of Voice 汇总的品牌竞争榜。情感取自答卷标注；无数据时显示「—」。"
-            />
-            <button type="button" className="secondary-button" onClick={onOpenDetected}>
-              更多已发现品牌
-            </button>
-          </div>
-          <div className="table-scroll">
-            <table className="compact-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>名称</th>
-                  <th>{t("sentiment.pending")}</th>
-                  <th>提及</th>
-                  <th>覆盖率</th>
-                  <th>SOV</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ranking.slice(0, 6).map((r, i) => (
-                  <tr key={r.brandId}>
-                    <td>{i + 1}</td>
-                    <td>
-                      <span
-                        className="comp-dot"
-                        style={{
-                          background: colorByBrand.get(r.brandId) || r.color,
-                          display: "inline-grid",
-                          marginRight: 6,
-                        }}
-                      >
-                        {r.name.slice(0, 1)}
-                      </span>
-                      <b>{r.name}</b>
-                      {r.isPrimary && <small className="you-label">你</small>}
-                    </td>
-                    <SentimentCell row={r} />
-                    <td>{r.mentions}</td>
-                    <td>{r.coverage}%</td>
-                    <td>{r.sovPercent}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
-        )}
-        {loadingPrompts ? (
-          <TablePanelSkeleton title="Top Prompts by Brand Mentions" cols={1} />
-        ) : (
-        <article className="panel table-panel">
-          <div className="panel-head">
-            <PanelTitle
-              title="Top Prompts by Brand Mentions"
-              tip="本品被提及次数最多的监测问题。可用于识别高可见话题，并下钻到具体答卷。"
-            />
-            <button className="text-button" onClick={onOpenPrompts}>
-              {t("action.viewFullReport")}
-            </button>
-          </div>
-          <div className="table-scroll">
-            <table className="compact-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Prompt</th>
-                  <th>提及</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mentionPrompts.map((p, i) => (
-                  <tr key={p.promptId}>
-                    <td>{i + 1}</td>
-                    <td>
-                      <b className="prompt-name">
-                        <PromptHoverText text={p.q} />
-                      </b>
-                    </td>
-                    <td>{p.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
-        )}
-      </div>
-
       {!coreReady ? (
-        <TablePanelSkeleton title="Brand Visibility Index" cols={3} rows={4} />
+        <TablePanelSkeleton title={t("bvi.title")} cols={3} rows={4} />
       ) : (
       <BrandVisibilityIndexPanel
         bvi={data!.bvi ?? { coverageMid: 50, likelihoodMid: 50, frames: [] }}
@@ -381,23 +379,23 @@ export function Overview({
       )}
 
       {!coreReady ? (
-        <div className="dashboard-grid overview-top" style={{ marginTop: 16 }}>
-          <ChartSkeleton title="域名覆盖" />
+        <div className="dashboard-grid overview-top">
+          <ChartSkeleton title={t("overview.domainCoverage")} />
           <div className="kpi-column">
-            <KpiPanelSkeleton title="Domain Citation" />
-            <KpiPanelSkeleton title="Citations Share" />
+            <KpiPanelSkeleton title={t("overview.domainCitation")} />
+            <KpiPanelSkeleton title={t("overview.citationShare")} />
           </div>
         </div>
       ) : (
-      <div className="dashboard-grid overview-top" style={{ marginTop: 16 }}>
+      <div className="dashboard-grid overview-top">
         <article className="panel trend-panel">
           <div className="panel-head">
             <PanelTitle
-              title="域名覆盖"
+              title={t("overview.domainCoverage")}
               tip={`各 AI 引擎答卷中，本品官网域名被引用的覆盖率（当前 ${data!.domainCoverage}%）。品牌被提及但官网未被引用时，说明存在可引用性缺口。`}
             />
             <button className="text-button" onClick={onOpenCitations}>
-              完整引用 →
+              {t("overview.fullCitations")}
             </button>
           </div>
           <div className="trend-body">
@@ -425,8 +423,8 @@ export function Overview({
         <div className="kpi-column">
           <article className="panel kpi-stack">
             <KpiTitle
-              title="Domain Citation"
-              tip="本品官网域名在答卷引用中出现的总次数。下方为主要竞品域名的引用量对比。"
+              title={t("overview.domainCitation")}
+              tip={t("overview.domainCitationTip")}
             />
             <div className="kpi-hero">{data!.domainCitations}</div>
             <div className="kpi-list">
@@ -443,8 +441,8 @@ export function Overview({
           </article>
           <article className="panel kpi-stack">
             <KpiTitle
-              title="Citations Share"
-              tip="本品引用次数占全部引用的份额。下方列出高引用 URL，可识别 AI 搜索中的「赢家页面」。"
+              title={t("overview.citationShare")}
+              tip={t("overview.citationShareTip")}
             />
             <div className="kpi-hero">{data!.citationShare}%</div>
             <div className="kpi-list">
@@ -463,7 +461,7 @@ export function Overview({
       {!coreReady ? (
         <div className="twin-tables">
           <TablePanelSkeleton title="域名引用" cols={3} />
-          <TablePanelSkeleton title="按官网引用的 Top Prompts" cols={1} />
+          <TablePanelSkeleton title={t("overview.topPromptsDomain")} cols={1} />
         </div>
       ) : (
       <div className="twin-tables">
@@ -503,7 +501,7 @@ export function Overview({
         <article className="panel table-panel">
           <div className="panel-head">
             <PanelTitle
-              title="按官网引用的 Top Prompts"
+              title={t("overview.topPromptsDomain")}
               subtitle="本品域名被引用最多的问题"
               tip="本品官网被引用次数最多的监测问题。适合优先做内容强化与 GEO 优化。"
             />

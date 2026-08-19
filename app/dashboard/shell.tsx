@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import ContentArticles from "../content-articles";
 import BrandSettings, { type BrandSettingsTab } from "../brand-settings";
 import GenerateReportModal from "../generate-report-modal";
@@ -33,16 +33,23 @@ import type {
 import type { WorkspacePayload } from "@/lib/onboarding/types";
 import { Citations } from "./citations";
 import { FilterEmptyStage } from "./filter-empty";
-import { navGroups } from "./nav";
+import { brandReportItems, navGroups } from "./nav";
 import { NotificationBell } from "./notification-bell";
 import { Overview } from "./overview";
-import { OverviewSkeleton, TablePageSkeleton } from "./skeleton";
+import { RecommendationsSkeleton, TablePageSkeleton } from "./skeleton";
 import { Prompts } from "./prompts";
 import { Recommendations } from "./recommendations";
 import { Reports } from "./reports";
-import { Billing } from "./billing";
+import { Billing, TrialBanner } from "./billing";
+import { BrandRailMenu, NavRailIcon, RailTip, SIDEBAR_COLLAPSED_KEY, SidebarToggleIcon } from "./sidebar-rail";
+import { BrandLogo } from "./brand-logo";
 import { LEAF_PAGES, pageFromHash, type PageKey } from "./types";
 import { checkNotificationsClient } from "@/lib/notifications/client";
+import {
+  loadBillingState,
+  saveBillingState,
+  type BillingState,
+} from "@/lib/billing/plans";
 function workspaceItemLabel(w: WorkspaceListItem) {
   return (w.reportTitle || w.brandName || w.name || "").trim() || "未命名工作区";
 }
@@ -57,7 +64,7 @@ const BRAND_CLUSTER: PageKey[] = [
 
 function brandClusterLabel(page: PageKey): string {
   if (page === "overview") return "总览";
-  if (page === "prompts") return "Prompts";
+  if (page === "prompts") return t("nav.prompts");
   if (page === "citations") return "引用";
   if (page === "recommendations") return "建议";
   return "品牌设置";
@@ -109,6 +116,33 @@ function GearIcon() {
   );
 }
 
+function subscribeSidebarCollapsed(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener("orbis-sidebar-collapsed", onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener("orbis-sidebar-collapsed", onChange);
+  };
+}
+
+function getSidebarCollapsed() {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function subscribeDesktopLayout(onChange: () => void) {
+  const mq = window.matchMedia("(min-width: 761px)");
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+function getDesktopLayout() {
+  return window.matchMedia("(min-width: 761px)").matches;
+}
+
 export default function DashboardShell() {
   const [experience, setExperience] = useState<"onboarding" | "dashboard">("dashboard");
   const [page, setPage] = useState<PageKey>("overview");
@@ -141,10 +175,25 @@ export default function DashboardShell() {
   const [loadingPrompts, setLoadingPrompts] = useState(false);
   const [loadingCitations, setLoadingCitations] = useState(false);
   const [metricsError, setMetricsError] = useState("");
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [billingManageOpen, setBillingManageOpen] = useState(false);
+  const [billingState, setBillingState] = useState<BillingState>(() => loadBillingState());
+  const [plansFocusTick, setPlansFocusTick] = useState(0);
   const [returnPage, setReturnPage] = useState<PageKey>("overview");
-  const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+  const [expandedBrandIds, setExpandedBrandIds] = useState<Set<string>>(() => new Set());
+  const sidebarCollapsed = useSyncExternalStore(
+    subscribeSidebarCollapsed,
+    getSidebarCollapsed,
+    () => false,
+  );
+  const desktopLayout = useSyncExternalStore(
+    subscribeDesktopLayout,
+    getDesktopLayout,
+    () => true,
+  );
+  const [brandRailOpen, setBrandRailOpen] = useState(false);
+  const [brandRailPos, setBrandRailPos] = useState({ top: 0, left: 0 });
+  const brandRailBtnRef = useRef<HTMLButtonElement | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const overviewAbort = useRef<AbortController | null>(null);
   const promptsAbort = useRef<AbortController | null>(null);
@@ -159,21 +208,25 @@ export default function DashboardShell() {
   }, []);
 
   useEffect(() => {
-    if (!workspaceMenuOpen && !accountMenuOpen) return;
+    if (!workspaceId || !BRAND_CLUSTER.includes(page)) return;
+    setExpandedBrandIds((prev) => {
+      if (prev.has(workspaceId)) return prev;
+      const next = new Set(prev);
+      next.add(workspaceId);
+      return next;
+    });
+  }, [workspaceId, page]);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       const t = event.target as Node;
-      if (workspaceMenuOpen && workspaceMenuRef.current && !workspaceMenuRef.current.contains(t)) {
-        setWorkspaceMenuOpen(false);
-      }
-      if (accountMenuOpen && accountMenuRef.current && !accountMenuRef.current.contains(t)) {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(t)) {
         setAccountMenuOpen(false);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setWorkspaceMenuOpen(false);
-        setAccountMenuOpen(false);
-      }
+      if (event.key === "Escape") setAccountMenuOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
@@ -181,7 +234,7 @@ export default function DashboardShell() {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [workspaceMenuOpen, accountMenuOpen]);
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     const sync = () => setPage(pageFromHash(window.location.hash));
@@ -363,7 +416,7 @@ export default function DashboardShell() {
         if (err instanceof DOMException && err.name === "AbortError") return;
         if (err instanceof Error && err.name === "AbortError") return;
         if (page === "citations") {
-          setMetricsError(err instanceof Error ? err.message : "Citations 加载失败");
+          setMetricsError(err instanceof Error ? err.message : "引用分析加载失败");
         }
       })
       .finally(() => {
@@ -480,7 +533,6 @@ export default function DashboardShell() {
     workspace?.brand?.name ||
     overview?.brandName ||
     "选择工作区";
-  const workspaceInitial = workspaceName.slice(0, 1).toUpperCase() || "O";
   const profileName = workspace?.profile
     ? `${workspace.profile.firstName} ${workspace.profile.lastName}`.trim()
     : "监测账号";
@@ -496,13 +548,15 @@ export default function DashboardShell() {
     ? `import@${profileSite.replace(/^www\./, "")}`
     : "import@orbis.local";
 
-  const changePage = (key: PageKey) => {
+  const changePage = (key: PageKey, opts?: { scroll?: boolean }) => {
     if (LEAF_PAGES.includes(key) && !LEAF_PAGES.includes(page)) {
       setReturnPage(page);
     }
+    if (key !== "billing") setBillingManageOpen(false);
     setPage(key);
     setMobileNav(false);
     setAccountMenuOpen(false);
+    setBrandRailOpen(false);
     const here = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     const there =
       key === "overview"
@@ -511,19 +565,76 @@ export default function DashboardShell() {
     if (here !== there) {
       window.history.pushState({ page: key }, "", there);
     }
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (opts?.scroll !== false) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  const updateBillingState = (next: BillingState, persist = true) => {
+    setBillingState(next);
+    if (persist) saveBillingState(next);
+  };
+
+  const startSubscription = () => {
+    setPlansFocusTick((n) => n + 1);
+    if (page !== "billing") changePage("billing", { scroll: false });
   };
 
   const goHome = () => changePage("overview");
   const goBack = () => changePage(returnPage !== page ? returnPage : "overview");
 
+  const railMode = sidebarCollapsed && desktopLayout;
+  const persistSidebarCollapsed = (next: boolean) => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+    window.dispatchEvent(new Event("orbis-sidebar-collapsed"));
+    setBrandRailOpen(false);
+  };
+  const openBrandRailMenu = () => {
+    const btn = brandRailBtnRef.current;
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      setBrandRailPos({ top: r.top, left: r.right + 8 });
+    }
+    setBrandRailOpen((open) => !open);
+  };
+
+  const expandBrand = (id: string) => {
+    if (!id) return;
+    setExpandedBrandIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  const toggleBrandExpanded = (id: string) => {
+    if (!id) return;
+    setExpandedBrandIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openBrandPage = (id: string, key: PageKey) => {
+    expandBrand(id);
+    if (id !== workspaceId) selectWorkspace(id);
+    changePage(key);
+  };
+
   const selectWorkspace = (nextId: string) => {
-    setWorkspaceMenuOpen(false);
     if (!nextId || nextId === workspaceId) return;
     const next = workspaceList.find((w) => w.id === nextId);
     if (!next) return;
     setStoredWorkspaceId(next.id);
     setWorkspaceId(next.id);
+    expandBrand(next.id);
     setOverview(null);
     setWorkspace(null);
     setPromptsData(null);
@@ -534,24 +645,37 @@ export default function DashboardShell() {
     void loadDashboard(next.id);
   };
 
-  const toggleWorkspaceMenu = () => {
-    if (workspaceList.length < 2) {
-      notify("当前只有一个监测工作区");
-      return;
-    }
-    setWorkspaceMenuOpen((open) => !open);
-  };
+  const brandsForNav = workspaceList.length
+    ? workspaceList
+    : workspaceId
+      ? [
+          {
+            id: workspaceId,
+            name: workspaceName,
+            slug: "",
+            reportTitle: workspaceName,
+            brandName: workspaceName,
+            brandDomain: null,
+            observationCount: 0,
+          },
+        ]
+      : [];
+  const currentRailBrand =
+    brandsForNav.find((b) => b.id === workspaceId) ?? brandsForNav[0];
+  const currentRailLabel = currentRailBrand
+    ? workspaceItemLabel(currentRailBrand)
+    : "";
 
   const titles: Record<PageKey, [string, string]> = {
     overview: ["品牌报告总览", "覆盖率、提及、位次与引用，对照竞品表现。"],
-    prompts: ["Prompts", "查看哪些问题提及品牌，哪些提及竞品。"],
+    prompts: [t("prompts.title"), t("prompts.subtitle")],
     citations: ["引用分析", "AI 回答引用的 URL、域名与竞品共现。"],
     recommendations: ["优化建议", "把可见度缺口转成可执行的内容与公关动作。"],
     research: ["AI Prompt 研究", "发现真实用户会向 AI 提出的高价值问题。"],
     reports: ["报告中心", "创建面向团队、客户和管理层的周期报告。"],
     content: ["内容生成", "查看 seo-generator-agent 产出的文章状态、摘要与预览。"],
     "brand-settings": ["品牌设置", "管理本品、竞品、监测 Prompt 与通知偏好。"],
-    billing: ["账单与套餐", "试用、升级、加购、发票与公司抬头。"],
+    billing: ["账单", "在这里管理套餐与账单记录。"],
   };
 
   const promptBadge = promptsData?.total ? String(promptsData.total) : undefined;
@@ -619,113 +743,278 @@ export default function DashboardShell() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className={[
+        "app-shell",
+        billingState.plan === "trial" ? "has-trial-banner" : "",
+        page === "overview" ? "is-overview" : "",
+        page === "prompts" ? "is-prompts" : "",
+        page === "citations" ? "is-citations" : "",
+        page === "recommendations" ? "is-recommendations" : "",
+        page === "reports" ? "is-reports" : "",
+        railMode ? "sidebar-collapsed" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {billingState.plan === "trial" ? (
+        <TrialBanner state={billingState} onStartSubscription={startSubscription} />
+      ) : null}
+      <div className="app-shell-body">
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
-        <button
-          type="button"
-          className="brand"
-          onClick={goHome}
-          aria-label="返回总览"
-        >
-          <div className="brand-orbit">
-            <i />
-          </div>
-          <div>
-            <strong>ORBIS</strong>
-            <span>AI SEARCH INTELLIGENCE</span>
-          </div>
-        </button>
-        <div className="workspace-switch-wrap" ref={workspaceMenuRef}>
+        <div className="brand sidebar-header">
           <button
             type="button"
-            className="workspace-switch"
-            aria-haspopup="listbox"
-            aria-expanded={workspaceMenuOpen}
-            onClick={toggleWorkspaceMenu}
+            className="brand-home"
+            onClick={goHome}
+            aria-label="返回总览"
           >
-            <span className="workspace-avatar">{workspaceInitial}</span>
-            <span>
-              <b>{workspaceName}</b>
-              <small>
-                {workspaceList.length > 1
-                  ? `监测工作区 · 点击选择 (${workspaceList.length})`
-                  : "监测工作区"}
-              </small>
-            </span>
-            <em>⌄</em>
-          </button>
-          {workspaceMenuOpen ? (
-            <div className="workspace-menu" role="listbox" aria-label="选择监测工作区">
-              {workspaceList.map((w) => {
-                const label = workspaceItemLabel(w);
-                const active = w.id === workspaceId;
-                return (
-                  <button
-                    key={w.id}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    className={active ? "active" : ""}
-                    onClick={() => selectWorkspace(w.id)}
-                  >
-                    <b>{label}</b>
-                    <small>
-                      {w.brandDomain || w.slug}
-                      {w.observationCount
-                        ? ` · ${w.observationCount} 条答卷`
-                        : ""}
-                    </small>
-                  </button>
-                );
-              })}
+            <div className="brand-orbit">
+              <i />
             </div>
-          ) : null}
+            <div className="sidebar-label">
+              <strong>ORBIS</strong>
+              <span>{t("app.tagline")}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            className="sidebar-collapse-btn"
+            aria-expanded={!railMode}
+            aria-label={railMode ? "展开侧边栏" : "收起侧边栏"}
+            title={railMode ? "展开侧边栏" : "收起侧边栏"}
+            onClick={() => persistSidebarCollapsed(!sidebarCollapsed)}
+          >
+            <SidebarToggleIcon collapsed={railMode} />
+          </button>
         </div>
         <nav>
           {navGroups.map((group) => (
             <div className="nav-group" key={group.label}>
-              <p>{group.label}</p>
-              {group.items.map((item) => (
-                <button
-                  key={item.key}
-                  className={page === item.key ? "active" : ""}
-                  onClick={() => changePage(item.key as PageKey)}
-                >
-                  <span className="nav-icon">{item.icon}</span>
-                  {item.label}
-                  {item.key === "prompts" && promptBadge && <small>{promptBadge}</small>}
-                </button>
-              ))}
+              <div className="nav-group-head">
+                <p className="sidebar-label">{group.label}</p>
+                {group.add ? (
+                  <span className="nav-group-add sidebar-label" aria-hidden>
+                    +
+                  </span>
+                ) : null}
+              </div>
+              {group.label === "品牌报告" ? (
+                railMode ? (
+                  <>
+                    {currentRailBrand ? (
+                      <RailTip label={currentRailLabel}>
+                        <button
+                          type="button"
+                          ref={brandRailBtnRef}
+                          data-brand-rail-trigger=""
+                          className={`sidebar-rail-item is-brand${brandRailOpen ? " is-open" : ""}`}
+                          aria-label={currentRailLabel}
+                          aria-expanded={brandRailOpen}
+                          aria-haspopup="menu"
+                          onClick={openBrandRailMenu}
+                        >
+                          <BrandLogo
+                            className="brand-nav-logo"
+                            domain={currentRailBrand.brandDomain}
+                            name={currentRailLabel}
+                          />
+                        </button>
+                      </RailTip>
+                    ) : null}
+                    {brandReportItems.map((item) => {
+                      const isOn = page === item.key;
+                      return (
+                        <RailTip key={item.key} label={item.label}>
+                          <button
+                            type="button"
+                            className={`sidebar-rail-item${isOn ? " is-on" : ""}`}
+                            aria-label={item.label}
+                            onClick={() => {
+                              if (workspaceId) openBrandPage(workspaceId, item.key);
+                              else changePage(item.key);
+                            }}
+                          >
+                            <span className="nav-icon">
+                              <NavRailIcon name={item.key} />
+                            </span>
+                          </button>
+                        </RailTip>
+                      );
+                    })}
+                  </>
+                ) : (
+                  brandsForNav.map((brand) => {
+                    const brandId = brand.id;
+                    const label = workspaceItemLabel(brand);
+                    const expanded = expandedBrandIds.has(brandId);
+                    return (
+                      <div className="brand-nav" key={brandId}>
+                        <button
+                          type="button"
+                          className="brand-nav-row"
+                          aria-expanded={expanded}
+                          onClick={() => toggleBrandExpanded(brandId)}
+                        >
+                          <BrandLogo
+                            className="brand-nav-logo"
+                            domain={brand.brandDomain}
+                            name={label}
+                          />
+                          <span className="brand-nav-name">{label}</span>
+                          <span
+                            className={`brand-nav-caret${expanded ? " is-open" : ""}`}
+                            aria-hidden
+                          >
+                            ▸
+                          </span>
+                        </button>
+                        {expanded ? (
+                          <div className="brand-nav-children">
+                            {brandReportItems.map((item) => {
+                              const isOn = brandId === workspaceId && page === item.key;
+                              return (
+                                <button
+                                  key={item.key}
+                                  type="button"
+                                  className={isOn ? "brand-nav-child is-on" : "brand-nav-child"}
+                                  onClick={() => openBrandPage(brandId, item.key)}
+                                >
+                                  {item.label}
+                                  {item.key === "prompts" &&
+                                  brandId === workspaceId &&
+                                  promptBadge ? (
+                                    <small>{promptBadge}</small>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                )
+              ) : railMode ? (
+                group.items.map((item) => (
+                  <RailTip key={item.key} label={item.label}>
+                    <button
+                      type="button"
+                      className={`sidebar-rail-item${page === item.key ? " is-on" : ""}`}
+                      aria-label={item.label}
+                      onClick={() => changePage(item.key as PageKey)}
+                    >
+                      <span className="nav-icon">
+                        <NavRailIcon name={item.key} />
+                      </span>
+                    </button>
+                  </RailTip>
+                ))
+              ) : (
+                group.items.map((item) => (
+                  <button
+                    key={item.key}
+                    className={page === item.key ? "active" : ""}
+                    onClick={() => changePage(item.key as PageKey)}
+                  >
+                    <span className="nav-icon">{item.icon}</span>
+                    {item.label}
+                  </button>
+                ))
+              )}
             </div>
           ))}
+          <div className="sidebar-bottom">
+            <p className="sidebar-label">管理</p>
+            {railMode ? (
+              <>
+                <RailTip label="帮助与文档">
+                  <a
+                    href="/help"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="sidebar-rail-item"
+                    aria-label="帮助与文档"
+                  >
+                    <span className="nav-icon">
+                      <NavRailIcon name="help" />
+                    </span>
+                  </a>
+                </RailTip>
+                <RailTip label="账单与套餐">
+                  <button
+                    type="button"
+                    className={`sidebar-rail-item${page === "billing" ? " is-on" : ""}`}
+                    aria-label="账单与套餐"
+                    onClick={() => changePage("billing")}
+                  >
+                    <span className="nav-icon">
+                      <NavRailIcon name="billing" />
+                    </span>
+                  </button>
+                </RailTip>
+                <RailTip label="重新体验首次激活">
+                  <button
+                    type="button"
+                    className="sidebar-rail-item"
+                    aria-label="重新体验首次激活"
+                    onClick={() => {
+                      void resetOnboardingStorage().then(() => setExperience("onboarding"));
+                    }}
+                  >
+                    <span className="nav-icon">
+                      <NavRailIcon name="reset" />
+                    </span>
+                  </button>
+                </RailTip>
+              </>
+            ) : (
+              <>
+                <a href="/help" target="_blank" rel="noreferrer">
+                  <span>?</span>帮助与文档
+                </a>
+                <button
+                  type="button"
+                  className={page === "billing" ? "active" : ""}
+                  onClick={() => changePage("billing")}
+                >
+                  <span>$</span>账单与套餐
+                </button>
+                <button
+                  onClick={() => {
+                    void resetOnboardingStorage().then(() => setExperience("onboarding"));
+                  }}
+                >
+                  <span>↺</span>重新体验首次激活
+                </button>
+              </>
+            )}
+          </div>
         </nav>
-        <div className="sidebar-bottom">
-          <a href="/help" target="_blank" rel="noreferrer">
-            <span>?</span>帮助与文档
-          </a>
-          <button
-            type="button"
-            className={page === "billing" ? "active" : ""}
-            onClick={() => changePage("billing")}
-          >
-            <span>$</span>账单与套餐
-          </button>
-          <button
-            onClick={() => {
-              void resetOnboardingStorage().then(() => setExperience("onboarding"));
-            }}
-          >
-            <span>↺</span>重新体验首次激活
-          </button>
-        </div>
+        <BrandRailMenu
+          open={railMode && brandRailOpen}
+          top={brandRailPos.top}
+          left={brandRailPos.left}
+          currentId={workspaceId}
+          items={brandsForNav.map((b) => ({
+            id: b.id,
+            label: workspaceItemLabel(b),
+            domain: b.brandDomain,
+          }))}
+          onClose={() => setBrandRailOpen(false)}
+          onPick={(id) => {
+            setBrandRailOpen(false);
+            const nextPage = BRAND_CLUSTER.includes(page) ? page : "overview";
+            openBrandPage(id, nextPage);
+          }}
+        />
       </aside>
       {mobileNav && (
         <button className="nav-backdrop" aria-label="关闭菜单" onClick={() => setMobileNav(false)} />
       )}
 
       <main className="main">
-        <section className="content">
-          <div className="page-chrome">
+        <div className="page-topbar">
             <div className="crumb-row">
               <button
                 className="mobile-menu"
@@ -784,12 +1073,29 @@ export default function DashboardShell() {
                       >
                         账单与套餐
                       </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAccountMenuOpen(false);
+                          void fetch("/api/auth/logout", {
+                            method: "POST",
+                            credentials: "include",
+                          }).then(() => {
+                            window.location.href = "/";
+                          });
+                        }}
+                      >
+                        退出登录
+                      </button>
                     </div>
                   ) : null}
                 </div>
               </div>
             </div>
-
+        </div>
+        <section className="content">
+          <div className="page-chrome">
             <div className="page-heading">
               <div className="page-title">
                 {(
@@ -806,7 +1112,15 @@ export default function DashboardShell() {
                     onClick={goHome}
                     aria-label={`返回 ${workspaceName} 总览`}
                   >
-                    {workspaceInitial}
+                    <BrandLogo
+                      className="brand-mark-logo"
+                      domain={
+                        selectedWorkspace?.brandDomain ||
+                        workspace?.brand?.website ||
+                        profileSite
+                      }
+                      name={workspaceName}
+                    />
                   </button>
                 ) : null}
                 <div>
@@ -825,11 +1139,13 @@ export default function DashboardShell() {
                   </h1>
                   {page === "prompts" ? (
                     <p>{t("prompts.subtitle")}</p>
+                  ) : page === "citations" ? (
+                    <p>{titles.citations[1]}</p>
+                  ) : page === "recommendations" ? (
+                    <p>{titles.recommendations[1]}</p>
                   ) : (
                       [
                         "overview",
-                        "citations",
-                        "recommendations",
                         "brand-settings",
                       ] as PageKey[]
                     ).includes(page) ? null : (
@@ -846,6 +1162,15 @@ export default function DashboardShell() {
                       onClick={goBack}
                     >
                       ← 返回
+                    </button>
+                  ) : null}
+                  {page === "billing" ? (
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      onClick={() => setBillingManageOpen(true)}
+                    >
+                      管理套餐
                     </button>
                   ) : null}
                   {showBrandSettings ? (
@@ -975,7 +1300,7 @@ export default function DashboardShell() {
             />
           )}
           {page === "prompts" && loadingPrompts ? (
-            <TablePageSkeleton title="Prompts" />
+            <TablePageSkeleton title={t("prompts.title")} />
           ) : page === "prompts" && promptsData ? (
             <FilterEmptyStage empty={filteredPrompts.length === 0}>
             <Prompts
@@ -1004,7 +1329,7 @@ export default function DashboardShell() {
             </FilterEmptyStage>
           ) : null}
           {page === "recommendations" && loadingOverview ? (
-            <OverviewSkeleton />
+            <RecommendationsSkeleton />
           ) : page === "recommendations" ? (
             <FilterEmptyStage
               empty={Boolean(overview && overview.observationCount === 0)}
@@ -1040,13 +1365,25 @@ export default function DashboardShell() {
           )}
           {page === "billing" && (
             <Billing
-              promptUsed={promptsData?.total ?? overview?.promptTotal ?? 0}
+              usage={{
+                prompts: promptsData?.total ?? overview?.promptTotal ?? 0,
+                geoAudits: 0,
+                api: 0,
+                mcp: 0,
+                agentEvents: 0,
+              }}
               workspaceCount={workspaceList.length}
               notify={notify}
+              manageOpen={billingManageOpen}
+              onManageOpenChange={setBillingManageOpen}
+              state={billingState}
+              onStateChange={updateBillingState}
+              plansFocusTick={plansFocusTick}
             />
           )}
         </section>
       </main>
+      </div>
 
       {drawerPrompt && (
         <div className="drawer-wrap">

@@ -1,0 +1,24 @@
+# 宝塔 / IP 部署说明
+
+每台机器的 MySQL 账号不同。zip / git **不含** `.env.local`。
+
+```bash
+cd /www/wwwroot
+unzip -o orbis-baota-deploy.zip -d orbis
+cd orbis/seo-geo-platform
+
+# 首次：生成并改这台机器的库账号（用户/密码以宝塔「数据库」面板为准）
+cp -n .env.example .env.local
+# 编辑 .env.local：
+#   DATABASE_URL=mysql://用户:密码@127.0.0.1:3306/库名
+# 主机必须是 127.0.0.1，不要写 localhost
+
+bash start.sh
+```
+
+以后代码更新后再启动：`bash start.sh --build`  
+只停服务（含直接跑的 vinext）：`bash start.sh --stop`
+
+宝塔网站反代：`http://127.0.0.1:3000`  
+自检：`curl -s http://127.0.0.1:3000/api/health`  
+日志：`pm2 logs orbis --lines 50`

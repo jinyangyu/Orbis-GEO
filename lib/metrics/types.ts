@@ -77,6 +77,7 @@ export type CitationDomainRow = {
 export type BrandMatrixRow = {
   brandId: string;
   name: string;
+  domain: string;
   isPrimary: boolean;
   visibility: number;
   coverage: number;
@@ -153,6 +154,7 @@ export type CitedUrlRow = {
   competitors: Array<{
     brandId: string;
     name: string;
+    domain: string;
     mark: string;
     color: string;
   }>;

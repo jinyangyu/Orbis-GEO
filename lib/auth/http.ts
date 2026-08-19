@@ -2,6 +2,7 @@
  * Server-only auth helpers for API routes.
  * Do not import this module from client components.
  */
+import { assertGate, GateRequiredError } from "@/lib/auth/gate";
 import {
   readSession,
   requireSession,
@@ -9,13 +10,22 @@ import {
 } from "@/lib/auth/session";
 import { UserIdRequiredError } from "@/lib/identity";
 
-export { UserIdRequiredError };
+export { UserIdRequiredError, GateRequiredError };
 
 export function resolveUserId(request: Request): string | null {
   return readSession(request)?.userId ?? null;
 }
 
 export function requireUserId(request: Request): string {
+  try {
+    assertGate(request);
+  } catch (e) {
+    if (e instanceof GateRequiredError) {
+      // Existing API routes already map UserIdRequiredError → 401.
+      throw new UserIdRequiredError();
+    }
+    throw e;
+  }
   try {
     return requireSession(request);
   } catch (e) {

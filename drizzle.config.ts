@@ -5,8 +5,6 @@ export default defineConfig({
   schema: "./db/schema.ts",
   dialect: "mysql",
   dbCredentials: {
-    url:
-      process.env.DATABASE_URL ??
-      "mysql://orbis:orbis@127.0.0.1:3306/orbis",
+    url: process.env.DATABASE_URL ?? "",
   },
 });

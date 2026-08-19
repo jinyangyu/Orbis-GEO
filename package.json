@@ -8,9 +8,10 @@
   "scripts": {
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --hostname 0.0.0.0",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
-    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "start": "node scripts/prepare-runtime-env.mjs && WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "db:check": "node scripts/prepare-runtime-env.mjs",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
-    "test:unit": "node --experimental-strip-types --test tests/seo-agent-query.test.mjs tests/workspace-slug.test.mjs tests/onboarding-validate.test.mjs tests/metrics-heuristics.test.mjs tests/metrics-filters.test.mjs tests/date-range.test.mjs tests/prompt-research-validate.test.mjs tests/i18n.test.mjs tests/observability.test.mjs tests/citation-stars-validate.test.mjs tests/reports-filters.test.mjs tests/notifications-digest.test.mjs tests/session-token.test.mjs tests/reports-storage.test.mjs tests/safe-url.test.mjs tests/rate-limit.test.mjs tests/dev-open-tenant.test.mjs tests/help-catalog.test.mjs tests/pricing-catalog.test.mjs tests/workbench-nav.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/seo-agent-query.test.mjs tests/workspace-slug.test.mjs tests/onboarding-validate.test.mjs tests/metrics-heuristics.test.mjs tests/metrics-filters.test.mjs tests/date-range.test.mjs tests/prompt-research-validate.test.mjs tests/i18n.test.mjs tests/observability.test.mjs tests/citation-stars-validate.test.mjs tests/reports-filters.test.mjs tests/notifications-digest.test.mjs tests/session-token.test.mjs tests/reports-storage.test.mjs tests/safe-url.test.mjs tests/rate-limit.test.mjs tests/dev-open-tenant.test.mjs tests/help-catalog.test.mjs tests/pricing-catalog.test.mjs tests/billing-plans.test.mjs tests/workbench-nav.test.mjs tests/gate-auth.test.mjs tests/brand-logo.test.mjs tests/database-url.test.mjs",
     "test:e2e": "node --test tests/e2e-smoke.test.mjs",
     "test:ci": "npm run lint && npm run test:unit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",

@@ -11,10 +11,10 @@ export function Recommendations({
 }) {
   const items = overview?.actions ?? [];
   return (
-    <>
+    <div className="recommendations-page">
       <section className="audit-hero">
         <div>
-          <span className="eyebrow">RECOMMENDATIONS · 基于监测库</span>
+          <span className="eyebrow">优化建议 · 基于监测库</span>
           <h2>{overview ? overview.brandName : "品牌"} 优先行动</h2>
           <p>
             {overview
@@ -32,7 +32,11 @@ export function Recommendations({
         </div>
         {items.map((item, i) => (
           <div className="audit-item" key={item.title}>
-            <span className="audit-score">{90 - i * 6}</span>
+            <span
+              className={`audit-score${item.priority === "高" ? " is-high" : item.priority === "中" ? " is-mid" : " is-low"}`}
+            >
+              {90 - i * 6}
+            </span>
             <div className="audit-copy">
               <div>
                 <b>{item.title}</b>
@@ -57,11 +61,11 @@ export function Recommendations({
           </div>
         ))}
         {items.length === 0 && (
-          <div className="empty-delta" style={{ margin: 18 }}>
+          <div className="empty-delta">
             暂无建议
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

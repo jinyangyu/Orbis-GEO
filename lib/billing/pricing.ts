@@ -13,6 +13,9 @@ export type PublicPlan = {
   cta: string;
   bullets: string[];
   includes: string[];
+  scaleHighlights?: string[];
+  accountAbove?: string[];
+  accountBelow?: string[];
 };
 
 export const CORE_ENGINES = [
@@ -60,7 +63,24 @@ export const PUBLIC_PLANS: PublicPlan[] = [
       "每周 3 条建议",
       ...SHARED_INCLUDES_TOOLS,
       "每月 1,000 次 GEO Audit",
-      "集体 Onboarding",
+      "集体入门培训",
+    ],
+    scaleHighlights: ["15 条监测 Prompt", "每月 1,000 次 URL Audit"],
+    accountAbove: [
+      "15 条监测 Prompt",
+      "每月 1,000 次 URL Audit",
+      "每周 3 条建议",
+      "监测引擎",
+      "可加购引擎",
+      "每日 AI 可见度跟踪",
+      "不限成员",
+    ],
+    accountBelow: [
+      "1 个工作区",
+      "不限品牌报告",
+      "AI Prompt 研究",
+      "引用与链接分析",
+      "生成式引擎优化审计",
     ],
   },
   {
@@ -76,7 +96,7 @@ export const PUBLIC_PLANS: PublicPlan[] = [
       ...SHARED_PAID_BULLETS,
       "API 访问",
       "MCP 访问",
-      "Agent Analytics",
+      "Agent 分析",
       "可加购 100 条 Prompt，每包 $99",
     ],
     includes: [
@@ -89,7 +109,29 @@ export const PUBLIC_PLANS: PublicPlan[] = [
       "每月 2,000 次 API 请求",
       "每月 2,000 次 MCP 请求",
       "每月 20 万 Agent Analytics 事件",
-      "集体 Onboarding",
+      "集体入门培训",
+    ],
+    scaleHighlights: ["100 条监测 Prompt", "每月 5,000 次 URL Audit"],
+    accountAbove: [
+      "100 条监测 Prompt",
+      "每月 5,000 次 URL Audit",
+      "不限建议",
+      "监测引擎",
+      "可加购引擎",
+      "Google Looker Studio 连接器",
+      "每月 2,000 次 API 请求",
+      "每月 2,000 次 MCP 请求",
+      "每月 20 万 Agent 分析事件",
+      "每日 AI 可见度跟踪",
+      "不限成员",
+      "可加购 100 条 Prompt，每包 $99",
+    ],
+    accountBelow: [
+      "不限工作区",
+      "不限品牌报告",
+      "AI Prompt 研究",
+      "引用与链接分析",
+      "生成式引擎优化审计",
     ],
   },
   {
@@ -104,7 +146,7 @@ export const PUBLIC_PLANS: PublicPlan[] = [
       ...SHARED_PAID_BULLETS,
       "API 访问",
       "MCP 访问",
-      "Agent Analytics",
+      "Agent 分析",
       "可加购 100 条 Prompt，每包 $99",
     ],
     includes: [
@@ -118,6 +160,28 @@ export const PUBLIC_PLANS: PublicPlan[] = [
       "每月 5,000 次 MCP 请求",
       "每月 100 万 Agent Analytics 事件",
       "一对一 Onboarding",
+    ],
+    scaleHighlights: ["400 条监测 Prompt", "每月 10,000 次 URL Audit"],
+    accountAbove: [
+      "400 条监测 Prompt",
+      "每月 10,000 次 URL Audit",
+      "不限建议",
+      "监测引擎",
+      "可加购引擎",
+      "Google Looker Studio 连接器",
+      "每月 5,000 次 API 请求",
+      "每月 5,000 次 MCP 请求",
+      "每月 100 万 Agent 分析事件",
+      "每日 AI 可见度跟踪",
+      "不限成员",
+      "可加购 100 条 Prompt，每包 $99",
+    ],
+    accountBelow: [
+      "不限工作区",
+      "不限品牌报告",
+      "AI Prompt 研究",
+      "引用与链接分析",
+      "生成式引擎优化审计",
     ],
   },
   {

@@ -8,6 +8,7 @@ import {
   fetchReportExports,
   type ReportExportView,
 } from "@/lib/reports/client";
+import { ReportsListSkeleton } from "./skeleton";
 
 export function Reports({
   workspaceId,
@@ -75,7 +76,7 @@ export function Reports({
   };
 
   return (
-    <>
+    <div className="reports-page">
       <section className="report-hero">
         <div>
           <span className="eyebrow">{t("reports.emptyTitle")}</span>
@@ -100,9 +101,9 @@ export function Reports({
             刷新
           </button>
         </div>
-        {loading && <div className="empty-delta" style={{ margin: 18 }}>加载中…</div>}
+        {loading ? <ReportsListSkeleton /> : null}
         {!loading && items.length === 0 && (
-          <div className="empty-delta" style={{ margin: 18 }}>
+          <div className="empty-delta">
             暂无已保存报告。请从品牌报告页使用「{t("action.generateReport")}」导出 PDF。
           </div>
         )}
@@ -134,6 +135,7 @@ export function Reports({
                 {r.downloadable ? (
                   <button
                     type="button"
+                    className="report-row-action is-primary"
                     disabled={busyId === r.id}
                     onClick={() => void onDownload(r)}
                   >
@@ -141,12 +143,17 @@ export function Reports({
                   </button>
                 ) : null}
                 {onRegenerate ? (
-                  <button type="button" onClick={() => onRegenerate(r)}>
+                  <button
+                    type="button"
+                    className="report-row-action"
+                    onClick={() => onRegenerate(r)}
+                  >
                     再次生成
                   </button>
                 ) : null}
                 <button
                   type="button"
+                  className="report-row-action is-muted"
                   disabled={deletingId === r.id}
                   onClick={() => void onDelete(r.id)}
                 >
@@ -156,6 +163,6 @@ export function Reports({
             );
           })}
       </div>
-    </>
+    </div>
   );
 }

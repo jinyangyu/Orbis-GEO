@@ -1,5 +1,7 @@
 "use client";
 
+import { t } from "@/lib/i18n";
+
 function Bar({
   width,
   height = 10,
@@ -94,7 +96,7 @@ export function ChartSkeleton({ title }: { title: string }) {
 export function MetricCardsSkeleton() {
   return (
     <div className="metric-grid">
-      {["AI 可见度", "品牌覆盖率", "Share of Voice", "官网引用"].map((label) => (
+      {[t("metric.aiVisibility"), t("metric.brandCoverage"), t("metric.sov"), t("metric.domainCite")].map((label) => (
         <article className="metric-card" key={label}>
           <span>{label}</span>
           <Bar width={92} height={28} />
@@ -107,7 +109,7 @@ export function MetricCardsSkeleton() {
 
 export function NoticeSkeleton() {
   return (
-    <div className="notice sk-notice">
+    <div className="notice notice-insight sk-notice">
       <i className="sk sk-icon" />
       <div>
         <Bar width={200} height={12} />
@@ -136,19 +138,19 @@ export function TablePanelSkeleton({
 export function OverviewSkeleton() {
   return (
     <div className="page-skeleton" aria-busy="true" aria-label="正在加载监测数据">
-      <NoticeSkeleton />
-      <MetricCardsSkeleton />
-      <div className="dashboard-grid overview-top">
-        <ChartSkeleton title="Brand Coverage Over Time" />
+      <div className="dashboard-grid overview-top overview-chart-row">
+        <ChartSkeleton title={t("overview.coverageTrend")} />
         <div className="kpi-column">
-          <KpiSkeleton title="Your Brand Mentions" />
-          <KpiSkeleton title="Your Average Brand Position" />
+          <KpiSkeleton title={t("overview.brandMentions")} />
+          <KpiSkeleton title={t("overview.avgPosition")} />
         </div>
       </div>
       <div className="twin-tables">
         <TableSkeleton title="品牌排名" cols={4} />
-        <TableSkeleton title="Top Prompts" cols={1} />
+        <TableSkeleton title={t("overview.topPromptsMentions")} cols={1} />
       </div>
+      <NoticeSkeleton />
+      <MetricCardsSkeleton />
     </div>
   );
 }
@@ -177,6 +179,55 @@ export function TablePageSkeleton({
           ))}
         </div>
       </article>
+    </div>
+  );
+}
+
+export function RecommendationsSkeleton() {
+  return (
+    <div
+      className="recommendations-page"
+      aria-busy="true"
+      aria-label="正在加载优化建议"
+    >
+      <section className="audit-hero">
+        <div>
+          <Bar width={148} height={11} />
+          <Bar width={240} height={18} />
+          <Bar width="72%" height={12} />
+        </div>
+      </section>
+      <div className="panel audit-list">
+        <div className="panel-head">
+          <h3>优化建议</h3>
+        </div>
+        {Array.from({ length: 4 }, (_, i) => (
+          <div className="audit-item" key={i}>
+            <i className="sk audit-score" />
+            <div className="audit-copy">
+              <Bar width={`${58 + ((i * 9) % 22)}%`} height={12} />
+              <Bar width="86%" height={11} />
+              <Bar width={72} height={10} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ReportsListSkeleton({ rows = 4 }: { rows?: number }) {
+  return (
+    <div aria-busy="true" aria-label="正在加载报告列表">
+      {Array.from({ length: rows }, (_, i) => (
+        <div className="report-row" key={i}>
+          <i className="sk file-icon" />
+          <div>
+            <Bar width={`${52 + ((i * 11) % 24)}%`} height={12} />
+            <Bar width="42%" height={10} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
