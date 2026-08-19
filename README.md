@@ -127,6 +127,6 @@ PM2 读 `.env.local`；vinext Worker 读启动时写出的 `.dev.vars`。不要�
 
 「内容生成」经 BFF 调 Go agent。`.env.local` 中设置 `SEO_AGENT_BASE_URL=http://127.0.0.1:8080`。
 
-## vinext / ChatGPT 宿主
+## vinext 宿主
 
-本项目基于 vinext starter：不使用 `wrangler.jsonc`；`.openai/hosting.json` 声明可选 D1/R2（主存储是 MySQL）。OpenAI 工作区可读取 `oai-authenticated-user-email` 等头。SIWC 辅助见 `app/chatgpt-auth.ts`。SIWC 只解决身份，工作区成员仍以 `workspace_members` 为准。
+本项目基于 vinext starter：不使用 `wrangler.jsonc`；`.openai/hosting.json` 声明可选 D1/R2（主存储是 MySQL）。演示身份走门禁 cookie + session cookie；工作区成员以 `workspace_members` 为准。

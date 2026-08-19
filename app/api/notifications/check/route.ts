@@ -1,5 +1,6 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import type { OverviewAction } from "@/lib/metrics/types";
 import {
   markNotificationCheck,
@@ -11,22 +12,8 @@ import {
   tooManyRequests,
 } from "@/lib/http/rate-limit";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status =
-    message.includes("not found")
-      ? 404
-      : message.includes("DATABASE_URL")
-        ? 503
-        : 500;
-  return Response.json({ error: message }, { status });
-}
 
-export async function POST(request: Request) {
-  try {
+export const POST = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const body = (await request.json().catch(() => ({}))) as {
       workspaceId?: string;
@@ -57,7 +44,4 @@ export async function POST(request: Request) {
     );
     markNotificationCheck(body.workspaceId);
     return Response.json(result);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

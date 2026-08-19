@@ -22,6 +22,7 @@ export function authHeaders(userId: string): HeadersInit {
   return { [ORBIS_USER_ID_HEADER]: userId };
 }
 
+/** @deprecated Prefer SessionRequiredError / GateRequiredError from auth helpers. */
 export class UserIdRequiredError extends Error {
   constructor() {
     super("Missing or invalid session cookie");

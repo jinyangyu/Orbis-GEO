@@ -137,70 +137,10 @@ pull_latest_code() {
 
 check_database() {
   log "检查数据库连接"
-  if [[ -f scripts/prepare-runtime-env.mjs ]]; then
-    node scripts/prepare-runtime-env.mjs
-    return
+  if [[ ! -f scripts/prepare-runtime-env.mjs ]]; then
+    fail "缺少 scripts/prepare-runtime-env.mjs，无法解析 .env.local"
   fi
-  node --input-type=module <<'EOF'
-import fs from "node:fs";
-import mysql from "mysql2/promise";
-
-function loadEnv(filePath) {
-  const env = {};
-  if (!fs.existsSync(filePath)) return env;
-  for (const raw of fs.readFileSync(filePath, "utf8").split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const i = line.indexOf("=");
-    if (i <= 0) continue;
-    let value = line.slice(i + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[line.slice(0, i).trim()] = value;
-  }
-  return env;
-}
-
-const fileEnv = loadEnv(".env.local");
-for (const [key, value] of Object.entries(fileEnv)) {
-  if (!process.env[key]) process.env[key] = value;
-}
-const raw = (process.env.DATABASE_URL ?? "").trim();
-if (!raw) {
-  console.error("[orbis] .env.local 缺少 DATABASE_URL");
-  process.exit(1);
-}
-const parsed = new URL(raw);
-if (parsed.hostname === "localhost" || parsed.hostname === "::1") {
-  parsed.hostname = "127.0.0.1";
-}
-const databaseUrl = parsed.toString().replace(/\/$/, "");
-const runtime = { ...fileEnv, DATABASE_URL: databaseUrl };
-fs.writeFileSync(
-  ".dev.vars",
-  Object.entries(runtime)
-    .filter(([, value]) => value != null && value !== "")
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n") + "\n",
-);
-const connection = await mysql.createConnection({
-  host: parsed.hostname,
-  port: Number(parsed.port || 3306),
-  user: decodeURIComponent(parsed.username),
-  password: decodeURIComponent(parsed.password),
-  database: decodeURIComponent(parsed.pathname.replace(/^\//, "")),
-});
-const [rows] = await connection.query("SELECT USER() AS user, DATABASE() AS db");
-await connection.end();
-const row = Array.isArray(rows) ? rows[0] : {};
-console.log(
-  `[orbis] db ok user=${row.user} database=${row.db} host=${parsed.hostname}`,
-);
-EOF
+  node scripts/prepare-runtime-env.mjs
 }
 
 export PATH="/usr/local/bin:/usr/bin:$PATH"

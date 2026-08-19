@@ -5,8 +5,14 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
+
+const require = createRequire(import.meta.url);
+const { parseEnvFile, applyFileEnv, normalizeDatabaseUrl } = require(
+  "./lib/parse-env-file.cjs",
+);
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const envLocalPath = path.join(root, ".env.local");
@@ -34,43 +40,6 @@ const RUNTIME_KEYS = [
   "OPENAI_MODEL",
   "SEO_AGENT_BASE_URL",
 ];
-
-function parseEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return {};
-  const env = {};
-  for (const raw of fs.readFileSync(filePath, "utf8").split("\n")) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const i = line.indexOf("=");
-    if (i <= 0) continue;
-    const key = line.slice(0, i).trim();
-    let value = line.slice(i + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
-  }
-  return env;
-}
-
-function applyFileEnv(fileEnv) {
-  for (const [key, value] of Object.entries(fileEnv)) {
-    if (process.env[key] == null || process.env[key] === "") {
-      process.env[key] = value;
-    }
-  }
-}
-
-function normalizeDatabaseUrl(url) {
-  const parsed = new URL(url.trim());
-  if (parsed.hostname === "localhost" || parsed.hostname === "::1") {
-    parsed.hostname = "127.0.0.1";
-  }
-  return parsed.toString().replace(/\/$/, "");
-}
 
 function writeDevVars(values) {
   const lines = [];

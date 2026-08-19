@@ -1,5 +1,6 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import { writeRateLimited } from "@/lib/http/rate-limit";
 import {
   listStarredUrls,
@@ -7,24 +8,8 @@ import {
   unstarUrl,
 } from "@/lib/citations/stars";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status =
-    message.includes("not found")
-      ? 404
-      : message.includes("DATABASE_URL")
-        ? 503
-        : message.includes("无效")
-          ? 400
-          : 500;
-  return Response.json({ error: message }, { status });
-}
 
-export async function GET(request: Request) {
-  try {
+export const GET = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const url = new URL(request.url);
     const workspaceId = url.searchParams.get("workspaceId");
@@ -35,13 +20,9 @@ export async function GET(request: Request) {
       listStarredUrls(db, userId, workspaceId),
     );
     return Response.json({ urls });
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});
 
-export async function POST(request: Request) {
-  try {
+export const POST = withApi(async (request: Request) => {
     const limited = writeRateLimited(request);
     if (limited) return limited;
     const userId = requireUserId(request);
@@ -59,13 +40,9 @@ export async function POST(request: Request) {
       starUrl(db, userId, body.workspaceId!, body.url!),
     );
     return Response.json(result);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});
 
-export async function DELETE(request: Request) {
-  try {
+export const DELETE = withApi(async (request: Request) => {
     const limited = writeRateLimited(request);
     if (limited) return limited;
     const userId = requireUserId(request);
@@ -90,7 +67,4 @@ export async function DELETE(request: Request) {
       unstarUrl(db, userId, workspaceId!, citeUrl!),
     );
     return Response.json(result);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

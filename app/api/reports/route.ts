@@ -1,5 +1,6 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import { writeRateLimited } from "@/lib/http/rate-limit";
 import {
   createExport,
@@ -7,22 +8,8 @@ import {
   type ReportFiltersPayload,
 } from "@/lib/reports/service";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status =
-    message.includes("not found") || message.includes("access denied")
-      ? 404
-      : message.includes("DATABASE_URL")
-        ? 503
-        : 500;
-  return Response.json({ error: message }, { status });
-}
 
-export async function GET(request: Request) {
-  try {
+export const GET = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const url = new URL(request.url);
     const workspaceId = url.searchParams.get("workspaceId");
@@ -31,13 +18,9 @@ export async function GET(request: Request) {
     }
     const items = await withDb((db) => listExports(db, userId, workspaceId));
     return Response.json({ items });
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});
 
-export async function POST(request: Request) {
-  try {
+export const POST = withApi(async (request: Request) => {
     const limited = writeRateLimited(request);
     if (limited) return limited;
     const userId = requireUserId(request);
@@ -63,7 +46,4 @@ export async function POST(request: Request) {
       }),
     );
     return Response.json(item);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

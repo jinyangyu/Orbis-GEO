@@ -1,29 +1,14 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import { writeRateLimited } from "@/lib/http/rate-limit";
 import { attachExportFile, getExportFile } from "@/lib/reports/service";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status =
-    message.includes("not found") || message.includes("access denied")
-      ? 404
-      : message.includes("超过") || message.includes("空文件")
-        ? 400
-        : message.includes("DATABASE_URL") || message.includes("S3")
-          ? 503
-          : 500;
-  return Response.json({ error: message }, { status });
-}
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /** Upload PDF bytes for an existing report_exports row. */
-export async function PUT(request: Request, ctx: Ctx) {
-  try {
+export const PUT = withApi(async (request: Request, ctx: Ctx) => {
     const limited = writeRateLimited(request);
     if (limited) return limited;
     const userId = requireUserId(request);
@@ -41,14 +26,10 @@ export async function PUT(request: Request, ctx: Ctx) {
       attachExportFile(db, userId, workspaceId, id, buf),
     );
     return Response.json(item);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});
 
 /** Download stored PDF. */
-export async function GET(request: Request, ctx: Ctx) {
-  try {
+export const GET = withApi(async (request: Request, ctx: Ctx) => {
     const userId = requireUserId(request);
     const { id } = await ctx.params;
     const url = new URL(request.url);
@@ -74,7 +55,4 @@ export async function GET(request: Request, ctx: Ctx) {
         "cache-control": "private, no-store",
       },
     });
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

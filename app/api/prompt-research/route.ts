@@ -1,5 +1,6 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import { getWorkspaceForUser } from "@/lib/onboarding/service";
 import {
   getLatestPromptResearchJob,
@@ -10,25 +11,8 @@ import {
   parsePromptResearchBody,
 } from "@/lib/prompt-research/validate";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  if (error instanceof PromptResearchValidationError) {
-    return Response.json({ error: error.message }, { status: 400 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status =
-    message.includes("access denied") || message.includes("not found")
-      ? 404
-      : message.includes("DATABASE_URL")
-        ? 503
-        : 500;
-  return Response.json({ error: message }, { status });
-}
 
-export async function POST(request: Request) {
-  try {
+export const POST = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const body = await request.json();
     const input = parsePromptResearchBody(body);
@@ -46,13 +30,12 @@ export async function POST(request: Request) {
     });
 
     return Response.json(job);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+}, {
+  statusFor: (error) =>
+    error instanceof PromptResearchValidationError ? 400 : undefined,
+});
 
-export async function GET(request: Request) {
-  try {
+export const GET = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const url = new URL(request.url);
     const workspaceIdParam = url.searchParams.get("workspaceId");
@@ -69,7 +52,7 @@ export async function GET(request: Request) {
 
     if (!job) return new Response(null, { status: 204 });
     return Response.json(job);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+}, {
+  statusFor: (error) =>
+    error instanceof PromptResearchValidationError ? 400 : undefined,
+});

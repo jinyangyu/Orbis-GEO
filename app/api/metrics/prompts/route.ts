@@ -1,15 +1,8 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import { getPromptsMetrics, resolveWorkspaceId } from "@/lib/metrics/service";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status = message.includes("DATABASE_URL") ? 503 : 500;
-  return Response.json({ error: message }, { status });
-}
 
 function intParam(value: string | null): number | undefined {
   if (value == null || value === "") return undefined;
@@ -17,8 +10,7 @@ function intParam(value: string | null): number | undefined {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 }
 
-export async function GET(request: Request) {
-  try {
+export const GET = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const url = new URL(request.url);
     const q = url.searchParams.get("q") ?? undefined;
@@ -46,7 +38,4 @@ export async function GET(request: Request) {
       return Response.json({ error: "No monitoring workspace" }, { status: 404 });
     }
     return Response.json(data.metrics);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

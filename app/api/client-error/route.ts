@@ -1,5 +1,6 @@
 import { reportError } from "@/lib/observability/report-error";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import {
   allowRateLimit,
   clientIp,
@@ -7,7 +8,7 @@ import {
 } from "@/lib/http/rate-limit";
 
 /** Accept browser error reports; forward to the same reporter/webhook pipeline. */
-export async function POST(request: Request) {
+export const POST = withApi(async (request: Request) => {
   if (
     !allowRateLimit(`client-error-ip:${clientIp(request)}`, {
       windowMs: 60_000,
@@ -16,21 +17,14 @@ export async function POST(request: Request) {
   ) {
     return tooManyRequests(60);
   }
-  try {
-    const userId = requireUserId(request);
-    if (
-      !allowRateLimit(`client-error:${userId}`, {
-        windowMs: 60_000,
-        max: 10,
-      })
-    ) {
-      return tooManyRequests(60);
-    }
-  } catch (error) {
-    if (error instanceof UserIdRequiredError) {
-      return Response.json({ error: error.message }, { status: 401 });
-    }
-    throw error;
+  const userId = requireUserId(request);
+  if (
+    !allowRateLimit(`client-error:${userId}`, {
+      windowMs: 60_000,
+      max: 10,
+    })
+  ) {
+    return tooManyRequests(60);
   }
 
   try {
@@ -56,4 +50,4 @@ export async function POST(request: Request) {
     reportError(error, { source: "api.client-error" });
     return Response.json({ ok: false }, { status: 500 });
   }
-}
+});

@@ -1,24 +1,16 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import {
   getPromptDetailMetrics,
   resolveWorkspaceId,
 } from "@/lib/metrics/service";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status = message.includes("DATABASE_URL") ? 503 : 500;
-  return Response.json({ error: message }, { status });
-}
 
-export async function GET(
+export const GET = withApi(async (
   request: Request,
   context: { params: Promise<{ id: string }> },
-) {
-  try {
+) => {
     const userId = requireUserId(request);
     const { id } = await context.params;
     const url = new URL(request.url);
@@ -49,7 +41,4 @@ export async function GET(
       return Response.json({ error: "Prompt not found" }, { status: 404 });
     }
     return Response.json(data);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

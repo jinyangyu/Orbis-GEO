@@ -1,27 +1,14 @@
 import { withDb } from "@/db";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import {
   ensureDemoDetectedBrands,
   listDetectedBrands,
 } from "@/lib/brands/service";
 import { getWorkspaceForUser } from "@/lib/onboarding/service";
 
-function errorResponse(error: unknown) {
-  if (error instanceof UserIdRequiredError) {
-    return Response.json({ error: error.message }, { status: 401 });
-  }
-  const message = error instanceof Error ? error.message : "Unexpected error";
-  const status =
-    message.includes("access denied") || message.includes("not found")
-      ? 404
-      : message.includes("DATABASE_URL")
-        ? 503
-        : 500;
-  return Response.json({ error: message }, { status });
-}
 
-export async function GET(request: Request) {
-  try {
+export const GET = withApi(async (request: Request) => {
     const userId = requireUserId(request);
     const url = new URL(request.url);
     let workspaceId = url.searchParams.get("workspaceId");
@@ -39,7 +26,4 @@ export async function GET(request: Request) {
     });
 
     return Response.json(data);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+});

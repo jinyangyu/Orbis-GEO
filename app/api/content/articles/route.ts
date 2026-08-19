@@ -1,6 +1,7 @@
 import { agentArticlesURL } from "../../../../lib/seo-agent/query";
 import type { ArticleListQuery, ArticleListResponse } from "../../../../lib/seo-agent/types";
-import { UserIdRequiredError, requireUserId } from "@/lib/auth/http";
+import { requireUserId } from "@/lib/auth/http";
+import { withApi } from "@/lib/http/api-error";
 import {
   allowRateLimit,
   tooManyRequests,
@@ -25,22 +26,15 @@ function readQuery(request: Request): ArticleListQuery {
   };
 }
 
-export async function GET(request: Request) {
-  try {
-    const userId = requireUserId(request);
-    if (
-      !allowRateLimit(`articles:${userId}`, {
-        windowMs: 60_000,
-        max: 60,
-      })
-    ) {
-      return tooManyRequests(60);
-    }
-  } catch (error) {
-    if (error instanceof UserIdRequiredError) {
-      return Response.json({ error: error.message }, { status: 401 });
-    }
-    throw error;
+export const GET = withApi(async (request: Request) => {
+  const userId = requireUserId(request);
+  if (
+    !allowRateLimit(`articles:${userId}`, {
+      windowMs: 60_000,
+      max: 60,
+    })
+  ) {
+    return tooManyRequests(60);
   }
 
   const base = (process.env.SEO_AGENT_BASE_URL ?? "").trim();
@@ -82,4 +76,4 @@ export async function GET(request: Request) {
     const message = error instanceof Error ? error.message : "upstream fetch failed";
     return Response.json({ error: message }, { status: 502 });
   }
-}
+});
