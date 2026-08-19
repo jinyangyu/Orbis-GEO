@@ -7,6 +7,8 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
 PORT="${PORT:-3000}"
+REPO_URL="${REPO_URL:-https://github.com/jinyangyu/Orbis-GEO}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
 
 log() { printf '\n[orbis] %s\n' "$*"; }
 fail() { printf '\n[orbis] 启动失败：%s\n' "$*" >&2; exit 1; }
@@ -86,6 +88,51 @@ stop_old_server() {
   if [[ -n "$leftover" ]]; then
     fail "端口 ${PORT} 仍被占用：pid ${leftover}。请手动 kill 后再启动。"
   fi
+}
+
+download_file() {
+  local url="$1" dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --connect-timeout 20 -o "$dest" "$url"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$dest" "$url"
+  else
+    fail "需要 curl 或 wget 才能从 GitHub 拉代码"
+  fi
+}
+
+pull_latest_code() {
+  local env_bak
+  env_bak="$(mktemp)"
+  if [[ -f .env.local ]]; then
+    cp -a .env.local "$env_bak"
+  else
+    env_bak=""
+  fi
+
+  if command -v git >/dev/null 2>&1 && [[ -d .git ]]; then
+    log "git pull ${REPO_BRANCH}"
+    git fetch origin "$REPO_BRANCH"
+    git reset --hard "origin/${REPO_BRANCH}"
+  else
+    log "本机无 git 仓库，改为下载 GitHub zip（${REPO_BRANCH}）"
+    command -v unzip >/dev/null 2>&1 || fail "未找到 unzip，请先 yum/apt 安装 unzip，或安装 git 后用 git clone。"
+    local tmp zip src
+    tmp="$(mktemp -d)"
+    zip="${tmp}/src.zip"
+    download_file "${REPO_URL}/archive/refs/heads/${REPO_BRANCH}.zip" "$zip"
+    unzip -q -o "$zip" -d "$tmp"
+    src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -1)"
+    [[ -n "$src" && -d "$src" ]] || fail "GitHub zip 解压后没有目录"
+    (cd "$src" && tar cf - --exclude .env.local .) | tar xf - -C "$ROOT"
+    rm -rf "$tmp"
+  fi
+
+  if [[ -n "$env_bak" && -f "$env_bak" ]]; then
+    cp -a "$env_bak" .env.local
+    rm -f "$env_bak"
+  fi
+  log "代码已更新"
 }
 
 check_database() {
@@ -178,20 +225,27 @@ fi
 FORCE_BUILD=0
 SKIP_INSTALL=0
 STOP_ONLY=0
+DEPLOY=0
 for arg in "$@"; do
   case "$arg" in
     --build) FORCE_BUILD=1 ;;
     --skip-install) SKIP_INSTALL=1 ;;
     --stop) STOP_ONLY=1 ;;
+    --deploy|--pull|--update)
+      DEPLOY=1
+      FORCE_BUILD=1
+      ;;
     -h|--help)
       cat <<'EOF'
-用法: bash start.sh [--build] [--skip-install] [--stop]
+用法: bash start.sh [--deploy] [--build] [--skip-install] [--stop]
 
+  --deploy        从 GitHub 拉最新 main，再构建启动（无 git 时下 zip）
   --build         强制重新 npm run build
   --skip-install  跳过 npm install
   --stop          只停掉旧进程（PM2 / vinext / 端口），不启动
 
 首次部署前请编辑 .env.local 里的 DATABASE_URL。
+服务器日常发版：bash start.sh --deploy
 EOF
       exit 0
       ;;
@@ -220,6 +274,9 @@ fi
 
 log "node $(node -v)  npm $(npm -v)  目录 $ROOT"
 stop_old_server
+if [[ "$DEPLOY" -eq 1 ]]; then
+  pull_latest_code
+fi
 
 if [[ "$SKIP_INSTALL" -eq 0 ]]; then
   log "安装依赖"

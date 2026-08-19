@@ -61,8 +61,9 @@ bash start.sh
 `start.sh` 会：停掉旧的 PM2 `orbis` 以及占用 3000 端口的 vinext、验库、必要时 `npm install` / `build`、再用 PM2 拉起。
 
 ```bash
-bash start.sh --build          # 代码更新后强制重建
-bash start.sh --stop           # 只停，不启动
+bash start.sh --deploy         # 从 GitHub 拉最新代码并构建启动（无 git 则下 zip）
+bash start.sh --build          # 不拉代码，只重建启动
+bash start.sh --stop           # 只停掉旧进程
 bash start.sh --skip-install   # 依赖已装过
 ```
 
@@ -104,7 +105,7 @@ PM2 读 `.env.local`；vinext Worker 读启动时写出的 `.dev.vars`。不要�
 | `npm run db:import-inspection` | 导入 inspection 答卷到 L2 |
 | `npm run db:rebuild-daily` | 从 L2 重建 L3 |
 | `npm run test:unit` | 单元测试 |
-| `bash start.sh` | 服务器一键停旧进程并启动 |
+| `bash start.sh --deploy` | 服务器拉 GitHub 最新代码并启动 |
 
 ## 健康检查与 CI
 
